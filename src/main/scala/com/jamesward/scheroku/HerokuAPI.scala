@@ -1,36 +1,25 @@
 package com.jamesward.scheroku
 
-import java.io.{FileInputStream, FileOutputStream, BufferedOutputStream, File}
+import java.io.{BufferedOutputStream, File, FileInputStream, FileOutputStream}
 import java.util.zip.GZIPOutputStream
 
 import akka.actor.ActorSystem
+import org.apache.commons.compress.archivers.tar.{TarArchiveEntry, TarArchiveOutputStream}
+import org.apache.commons.compress.utils.IOUtils
 import play.api.http.Status
 import play.api.libs.iteratee.Enumerator
-import play.api.libs.json.JsValue
-import play.api.libs.json.Json
-import play.api.libs.ws.DefaultWSClientConfig
-import play.api.libs.ws.WSAPI
-import play.api.libs.ws.WSAuthScheme
-import play.api.libs.ws.WSClient
-import play.api.libs.ws.WSRequestHolder
-import play.api.libs.ws.WSResponse
-import play.api.libs.ws.WSResponseHeaders
-import play.api.libs.ws.ning.NingAsyncHttpClientConfigBuilder
-import play.api.libs.ws.ning.NingWSClient
+import play.api.libs.json.{JsValue, Json}
+import play.api.libs.ws.{DefaultWSClientConfig, WSAPI, WSAuthScheme, WSClient, WSRequestHolder, WSResponse, WSResponseHeaders}
+import play.api.libs.ws.ning.{NingAsyncHttpClientConfigBuilder, NingWSClient}
 import play.api.mvc.Results
-import org.apache.commons.compress.archivers.tar.TarArchiveEntry
-import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream
-import org.apache.commons.compress.utils.IOUtils
 
 import scala.concurrent.duration._
-import scala.concurrent.{ExecutionContext, Promise, Future}
-
+import scala.concurrent.{ExecutionContext, Future, Promise}
 
 trait HerokuAPI {
-
   implicit val ec: ExecutionContext
 
-  var BASE_URL = "https://api.heroku.com/%s"
+  val BASE_URL = "https://api.heroku.com/%s"
 
   class HerokuWS extends WSAPI {
     val builder = new NingAsyncHttpClientConfigBuilder(DefaultWSClientConfig())
@@ -68,13 +57,11 @@ trait HerokuAPI {
     }
   }
 
-  def getApiKey(username: String, password: String): Future[String] = {
+  def getApiKey(username: String, password: String): Future[String] =
     ws("account").withAuth(username, password, WSAuthScheme.BASIC).get().flatMap(handle(Status.OK, _.\("api_key").as[String]))
-  }
 
-  def createApp(apiKey: String): Future[App] = {
+  def createApp(apiKey: String): Future[App] =
     ws("apps", apiKey).post(Results.EmptyContent()).flatMap(handle(Status.CREATED, _.as[App]))
-  }
 
   def appSetup(apiKey: String, blobUrl: String): Future[JsValue] = {
     val requestJson = Json.obj("source_blob" -> Json.obj("url" -> blobUrl))
@@ -82,9 +69,7 @@ trait HerokuAPI {
       val id = (response.json \ "id").as[String]
 
       // poll for completion
-
       val appSetupPromise = Promise[JsValue]()
-
       val tick = ActorSystem().scheduler.schedule(Duration.Zero, 1.second, new Runnable {
         override def run() = {
           appSetupStatus(apiKey, id).foreach { json =>
@@ -107,36 +92,30 @@ trait HerokuAPI {
       })
 
       appSetupPromise.future.onComplete(_ => tick.cancel())
-
       appSetupPromise.future
     }
   }
 
-  def appSetupStatus(apiKey: String, id: String): Future[JsValue] = {
+  def appSetupStatus(apiKey: String, id: String): Future[JsValue] =
     ws(s"app-setups/$id", apiKey, "edge").get().flatMap(handle(Status.OK, identity))
-  }
 
-  def destroyApp(apiKey: String, appName: String): Future[_] = {
+  def destroyApp(apiKey: String, appName: String): Future[_] =
     ws(s"apps/$appName", apiKey).delete()
-  }
 
-  def getApps(apiKey: String): Future[Seq[App]] = {
+  def getApps(apiKey: String): Future[Seq[App]] =
     ws("apps", apiKey).get().flatMap(handle(Status.OK, _.as[Seq[App]]))
-  }
 
   def logs(apiKey: String, appName: String): Future[JsValue] = {
     val requestJson = Json.obj("tail" -> true, "lines" -> 10)
     ws(s"apps/$appName/log-sessions", apiKey).post(requestJson).flatMap(handle(Status.CREATED, identity))
   }
 
-  def buildResult(apiKey: String, appName: String, id: String): Future[JsValue] = {
+  def buildResult(apiKey: String, appName: String, id: String): Future[JsValue] =
     ws(s"apps/$appName/builds/$id/result", apiKey).get().flatMap(handle(Status.OK, identity))
-  }
 
   // todo: logplex doesn't chunk the response so it doesn't show up right away
-  def logStream(url: String): Future[(WSResponseHeaders, Enumerator[Array[Byte]])] = {
+  def logStream(url: String): Future[(WSResponseHeaders, Enumerator[Array[Byte]])] =
     new HerokuWS().url(url).stream()
-  }
 
   def createSlug(apiKey: String, appName: String, appDir: File): Future[String] = {
     val requestJson = Json.obj("process_types" -> Json.obj())
@@ -172,7 +151,7 @@ trait HerokuAPI {
     }))
   }
 
-  // side effecting!!!
+  /** side effecting!!! */
   def addToTar(tOut: TarArchiveOutputStream, path: String, base: String): Unit = {
     // manual exclude of target dirs & local.conf
     if (!base.endsWith("target/") && !path.endsWith("target") && !path.endsWith("local.conf")) {
@@ -200,16 +179,13 @@ trait HerokuAPI {
     ws(s"apps/$appName/builds", apiKey, "edge").post(requestJson).flatMap(handle(Status.CREATED, identity))
   }
 
-  def getConfigVars(apiKey: String, appName: String): Future[JsValue] = {
+  def getConfigVars(apiKey: String, appName: String): Future[JsValue] =
     ws(s"apps/$appName/config-vars", apiKey).get().flatMap(handle(Status.OK, identity))
-  }
 
-  def setConfigVars(apiKey: String, appName: String, configVars: JsValue): Future[JsValue] = {
+  def setConfigVars(apiKey: String, appName: String, configVars: JsValue): Future[JsValue] =
     ws(s"apps/$appName/config-vars", apiKey).patch(configVars).flatMap(handle(Status.OK, identity))
-  }
 
   case class App(name: String, web_url: String)
 
   implicit val appFormat = Json.format[App]
-
 }
