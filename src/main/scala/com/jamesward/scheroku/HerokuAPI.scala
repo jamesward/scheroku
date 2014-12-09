@@ -16,7 +16,26 @@ import play.api.mvc.Results
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future, Promise}
 
-trait HerokuAPI {
+/** Provide strong typing for API parameters */
+case class APIKey(apiKey: String) extends AnyVal {
+  override def toString = apiKey
+}
+
+/** Provide strong typing for API parameters */
+case class AppName(appName: String) extends AnyVal {
+  override def toString = appName
+}
+
+/** Lots of API method parameters are repetitive, so use implicits to clean up API */
+trait HerokuApiImplicits {
+  implicit class RichString(string: String) {
+    def asApiKey = APIKey(string)
+
+    def asAppName = AppName(string)
+  }
+}
+
+trait HerokuAPI extends HerokuApiImplicits {
   implicit val ec: ExecutionContext
 
   class HerokuWS extends WSAPI {
@@ -25,12 +44,12 @@ trait HerokuAPI {
     override def url(url: String): WSRequestHolder = client.url(url)
   }
 
-  // this uses an older API version by default because the login API we are using is only in the old API
-  def ws(path: String): WSRequestHolder = new HerokuWS().url(s"https://api.heroku.com/$path")
+  /** This method is just for the login API, which is only available from the old Heroku API. */
+  def wsOld(path: String): WSRequestHolder = new HerokuWS().url(s"https://api.heroku.com/$path")
 
   // this one uses version 3
-  def ws(path: String, apiKey: String, version: String = "3"): WSRequestHolder =
-    ws(path).withAuth("", apiKey, WSAuthScheme.BASIC).withHeaders("Accept" -> s"application/vnd.heroku+json; version=$version")
+  def ws(path: String, version: String = "3")(implicit apiKey: APIKey): WSRequestHolder =
+    wsOld(path).withAuth("", apiKey.toString, WSAuthScheme.BASIC).withHeaders("Accept" -> s"application/vnd.heroku+json; version=$version")
 
   def getError(response: WSResponse): String =
     (response.json \ "error").asOpt[String].orElse((response.json \ "message").asOpt[String]).getOrElse("Unknown Error")
@@ -56,21 +75,21 @@ trait HerokuAPI {
   }
 
   def getApiKey(username: String, password: String): Future[String] =
-    ws("account").withAuth(username, password, WSAuthScheme.BASIC).get().flatMap(handle(Status.OK, _.\("api_key").as[String]))
+    wsOld("account").withAuth(username, password, WSAuthScheme.BASIC).get().flatMap(handle(Status.OK, _.\("api_key").as[String]))
 
-  def createApp(apiKey: String): Future[App] =
-    ws("apps", apiKey).post(Results.EmptyContent()).flatMap(handle(Status.CREATED, _.as[App]))
+  def createApp()(implicit apiKey: APIKey): Future[App] =
+    ws("apps").post(Results.EmptyContent()).flatMap(handle(Status.CREATED, _.as[App]))
 
-  def appSetup(apiKey: String, blobUrl: String): Future[JsValue] = {
+  def appSetup(blobUrl: String)(implicit apiKey: APIKey): Future[JsValue] = {
     val requestJson = Json.obj("source_blob" -> Json.obj("url" -> blobUrl))
-    ws("app-setups", apiKey, "edge").post(requestJson).flatMap { response =>
+    ws("app-setups", "edge").post(requestJson).flatMap { response =>
       val id = (response.json \ "id").as[String]
 
       // poll for completion
       val appSetupPromise = Promise[JsValue]()
       val tick = ActorSystem().scheduler.schedule(Duration.Zero, 1.second, new Runnable {
         override def run() = {
-          appSetupStatus(apiKey, id).foreach { json =>
+          appSetupStatus(id).foreach { json =>
             val status = (json \ "status").as[String]
             status match {
               case "failed" =>
@@ -93,31 +112,53 @@ trait HerokuAPI {
     }
   }
 
-  def appSetupStatus(apiKey: String, id: String): Future[JsValue] =
-    ws(s"app-setups/$id", apiKey, "edge").get().flatMap(handle(Status.OK, identity))
+  def appSetupStatus(id: String)(implicit apiKey: APIKey): Future[JsValue] =
+    ws(s"app-setups/$id",  "edge").get().flatMap(handle(Status.OK, identity))
 
-  def destroyApp(apiKey: String, appName: String): Future[_] =
-    ws(s"apps/$appName", apiKey).delete()
+  def destroyApp()(implicit apiKey: APIKey, appName: AppName): Future[_] =
+    ws(s"apps/$appName").delete()
 
-  def getApps(apiKey: String): Future[Seq[App]] =
-    ws("apps", apiKey).get().flatMap(handle(Status.OK, _.as[Seq[App]]))
-
-  def logs(apiKey: String, appName: String): Future[JsValue] = {
-    val requestJson = Json.obj("tail" -> true, "lines" -> 10)
-    ws(s"apps/$appName/log-sessions", apiKey).post(requestJson).flatMap(handle(Status.CREATED, identity))
+  // todo figure out return type for JSON
+  def dynoCreate(blobUrl: String)(implicit apiKey: APIKey): Future[_] = {
+    val requestJson = Json.obj("source_blob" -> Json.obj("url" -> blobUrl))
+    for { response <- ws("app-setups", "edge").post(requestJson) } yield {
+      (response.json \ "id").as[String]
+    }
   }
 
-  def buildResult(apiKey: String, appName: String, id: String): Future[JsValue] =
-    ws(s"apps/$appName/builds/$id/result", apiKey).get().flatMap(handle(Status.OK, identity))
+  def dynoRestart(dynoIdOrName: String)(implicit apiKey: APIKey, appName: AppName): Future[_] =
+    ws(s"apps/$appName/dynos/$dynoIdOrName").delete()
+
+  // todo figure out return type for JSON
+  def dynoInfo(dynoIdOrName: String)(implicit apiKey: APIKey, appName: AppName): Future[_] =
+    ws(s"apps/$appName/dynos/$dynoIdOrName").get()
+
+  // todo figure out return type for JSON
+  def dynosList(implicit apiKey: APIKey, appName: AppName): Future[_] =
+    ws(s"apps/$appName").get()
+
+  def dynosRestartAll(implicit apiKey: APIKey, appName: AppName): Future[_] =
+    ws(s"apps/$appName/dynos").delete()
+
+  def getApps(implicit apiKey: APIKey): Future[Seq[App]] =
+    ws("apps").get().flatMap(handle(Status.OK, _.as[Seq[App]]))
+
+  def logs(implicit apiKey: APIKey, appName: AppName): Future[JsValue] = {
+    val requestJson = Json.obj("tail" -> true, "lines" -> 10)
+    ws(s"apps/$appName/log-sessions").post(requestJson).flatMap(handle(Status.CREATED, identity))
+  }
+
+  def buildResult(id: String)(implicit apiKey: APIKey, appName: AppName): Future[JsValue] =
+    ws(s"apps/$appName/builds/$id/result").get().flatMap(handle(Status.OK, identity))
 
   // todo: logplex doesn't chunk the response so it doesn't show up right away
   def logStream(url: String): Future[(WSResponseHeaders, Enumerator[Array[Byte]])] =
     new HerokuWS().url(url).stream()
 
-  def createSlug(apiKey: String, appName: String, appDir: File): Future[String] = {
+  def createSlug(appDir: File)(implicit apiKey: APIKey, appName: AppName): Future[String] = {
     val requestJson = Json.obj("process_types" -> Json.obj())
 
-    ws(s"/apps/$appName/slugs", apiKey).post(requestJson).flatMap(handleAsync(Status.CREATED, { response =>
+    ws(s"/apps/$appName/slugs").post(requestJson).flatMap(handleAsync(Status.CREATED, { response =>
       val id = (response \ "id").as[String]
       val url = (response \ "blob" \ "url").as[String]
       val tgzFile = new File(sys.props("java.io.tmpdir"), System.nanoTime().toString + ".tar.gz")
@@ -133,7 +174,7 @@ trait HerokuAPI {
         tgzFile.delete()
 
         // get the url to the slug
-        ws(s"apps/$appName/slugs/$id", apiKey).get().flatMap(handle(Status.OK, _.\("blob").\("url").as[String]))
+        ws(s"apps/$appName/slugs/$id").get().flatMap(handle(Status.OK, _.\("blob").\("url").as[String]))
       }
     }))
   }
@@ -159,18 +200,18 @@ trait HerokuAPI {
     }
   }
 
-  def buildSlug(apiKey: String, appName: String, url: String): Future[JsValue] = {
+  def buildSlug(url: String)(implicit apiKey: APIKey, appName: AppName): Future[JsValue] = {
     val requestJson = Json.obj("source_blob" -> Json.obj("url" -> url))
 
     // set the api version to 'edge' in order to get the output_stream_url
-    ws(s"apps/$appName/builds", apiKey, "edge").post(requestJson).flatMap(handle(Status.CREATED, identity))
+    ws(s"apps/$appName/builds", "edge").post(requestJson).flatMap(handle(Status.CREATED, identity))
   }
 
-  def getConfigVars(apiKey: String, appName: String): Future[JsValue] =
-    ws(s"apps/$appName/config-vars", apiKey).get().flatMap(handle(Status.OK, identity))
+  def getConfigVars(implicit apiKey: APIKey, appName: AppName): Future[JsValue] =
+    ws(s"apps/$appName/config-vars", apiKey.toString).get().flatMap(handle(Status.OK, identity))
 
-  def setConfigVars(apiKey: String, appName: String, configVars: JsValue): Future[JsValue] =
-    ws(s"apps/$appName/config-vars", apiKey).patch(configVars).flatMap(handle(Status.OK, identity))
+  def setConfigVars(configVars: JsValue)(implicit apiKey: APIKey, appName: AppName): Future[JsValue] =
+    ws(s"apps/$appName/config-vars", apiKey.toString).patch(configVars).flatMap(handle(Status.OK, identity))
 
   case class App(name: String, web_url: String)
 
