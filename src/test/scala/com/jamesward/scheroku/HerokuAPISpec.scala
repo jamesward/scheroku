@@ -19,15 +19,11 @@ object TestHerokuAPI extends HerokuAPI {
 }
 
 class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures {
-
   override implicit val patienceConfig: PatienceConfig = PatienceConfig(Span(30, Seconds))
 
   "login with invalid credentials" must {
     "fail" in {
-      TestHerokuAPI.getApiKey("foo@foo.com", "bar").onComplete {
-        case Success(_) => fail("should fail")
-        case Failure(_) => // all good
-      }
+      TestHerokuAPI.getApiKey("foo@foo.com", "bar").onSuccess { case _ => fail("should fail") }
     }
   }
 
@@ -67,9 +63,7 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures {
     val appDir = new File(sys.props("java.io.tmpdir"), System.nanoTime().toString)
     withLogin(appDir) { maybeApiKey =>
       val maybeApiKeyAndApp = maybeApiKey.map { apiKey =>
-
         val herokuApp = TestHerokuAPI.createApp(apiKey).futureValue
-
         (apiKey, herokuApp, appDir)
       }
       try {
@@ -94,10 +88,7 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures {
     "fail with an invalid apikey" in withApp { maybeAuthAndApp =>
       maybeAuthAndApp.map {
         case (apiKey, herokuApp, appDir) =>
-          TestHerokuAPI.getApps("asdf").onComplete {
-            case Success(_) => fail("should fail")
-            case Failure(_) => // all good
-          }
+          TestHerokuAPI.getApps("asdf").onFailure { case _ => fail("should fail") }
       }
     }
     "work with an apikey" in withApp { maybeAuthAndApp =>
@@ -117,14 +108,13 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures {
     }
   }
 
-  // cleanup the app
+  // clean up the app
   "logs" must {
     "get the log stream" in withApp { maybeAuthAndApp =>
       maybeAuthAndApp.map {
         case (apiKey, herokuApp, appDir) =>
           // Wait here because it takes a few for logplex to be enabled
           Thread.sleep(5000)
-
           (TestHerokuAPI.logs(apiKey, herokuApp.name).futureValue \ "logplex_url").asOpt[String] must be('defined)
       }
     }
@@ -141,7 +131,6 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures {
     "deploy the app on Heroku" in withApp { maybeAuthAndApp =>
       maybeAuthAndApp.map {
         case (apiKey, herokuApp, appDir) =>
-
           import java.io._
 
           val indexWriter = new PrintWriter(new File(appDir, "index.php"))
@@ -157,8 +146,6 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures {
           // Wait here because the build & release will take a little bit
           Thread.sleep(30000)
 
-
-
           /*
           val deployedResult = await(WS.url(herokuApp.web_url).get())
 
@@ -169,5 +156,4 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures {
     }
   }
   */
-
 }
