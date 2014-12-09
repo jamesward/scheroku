@@ -1,9 +1,0 @@
-#!/bin/bash
-
-if [ -z "$HEROKU_API_KEY" ]; then
-   echo "The HEROKU_API_KEY environment variable is not set. You can find out its value here: https://dashboard-next.heroku.com/account"
-   exit -2
-fi
-
-sbt stage deployHeroku
-

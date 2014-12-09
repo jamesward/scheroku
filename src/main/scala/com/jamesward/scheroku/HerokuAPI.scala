@@ -19,8 +19,6 @@ import scala.concurrent.{ExecutionContext, Future, Promise}
 trait HerokuAPI {
   implicit val ec: ExecutionContext
 
-  val BASE_URL = "https://api.heroku.com/%s"
-
   class HerokuWS extends WSAPI {
     val builder = new NingAsyncHttpClientConfigBuilder(DefaultWSClientConfig())
     override def client: WSClient = new NingWSClient(builder.build())
@@ -28,7 +26,7 @@ trait HerokuAPI {
   }
 
   // this uses an older API version by default because the login API we are using is only in the old API
-  def ws(path: String): WSRequestHolder = new HerokuWS().url(BASE_URL.format(path))
+  def ws(path: String): WSRequestHolder = new HerokuWS().url(s"https://api.heroku.com/$path")
 
   // this one uses version 3
   def ws(path: String, apiKey: String, version: String = "3"): WSRequestHolder =
