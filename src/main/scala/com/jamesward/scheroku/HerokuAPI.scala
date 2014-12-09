@@ -41,8 +41,8 @@ trait HerokuAPI {
     response.status match {
       case s: Int if s == status =>
         block(response.json)
-      case _ =>
-        // usually an error of some sort
+
+      case _ => // usually an error of some sort
         Future.failed(new RuntimeException(getError(response)))
     }
   }
@@ -51,8 +51,8 @@ trait HerokuAPI {
     response.status match {
       case s: Int if s == status =>
         Future.successful(block(response.json))
-      case _ =>
-        // usually an error of some sort
+
+      case _ => // usually an error of some sort
         Future.failed(new RuntimeException(getError(response)))
     }
   }
@@ -90,7 +90,6 @@ trait HerokuAPI {
           }
         }
       })
-
       appSetupPromise.future.onComplete(_ => tick.cancel())
       appSetupPromise.future
     }
@@ -122,23 +121,13 @@ trait HerokuAPI {
 
     ws(s"/apps/$appName/slugs", apiKey).post(requestJson).flatMap(handleAsync(Status.CREATED, { response =>
       val id = (response \ "id").as[String]
-
       val url = (response \ "blob" \ "url").as[String]
-
       val tgzFile = new File(sys.props("java.io.tmpdir"), System.nanoTime().toString + ".tar.gz")
 
-      // create the tgz
       val tgzos = new TarArchiveOutputStream(new GZIPOutputStream(new BufferedOutputStream(new FileOutputStream(tgzFile))))
-
-      // start with the files, not the dir
-      if (appDir.listFiles != null) {
-        appDir.listFiles.foreach { file =>
-          addToTar(tgzos, file.getAbsolutePath, "")
-        }
-      }
-
+      if (appDir.listFiles != null)  // start with the files, not the dir
+        appDir.listFiles.foreach { file => addToTar(tgzos, file.getAbsolutePath, "") }
       tgzos.finish()
-
       tgzos.close()
 
       // put the tgz
