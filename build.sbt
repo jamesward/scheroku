@@ -2,6 +2,9 @@ name := "scheroku"
 organization := "com.jamesward"
 version      := "0.0.1"
 
+// see https://github.com/heroku/sbt-heroku
+//herokuAppName in Compile := "your-heroku-app-name"  // PUT YOUR HEROKU APP NAME HERE
+
 licenses += ("MIT", url("http://opensource.org/licenses/MIT"))
 
 libraryDependencies ++= Seq(

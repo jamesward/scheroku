@@ -32,23 +32,28 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures {
   }
 
   def withLogin(appDir: File)(testCode: Option[String] => Any) = {
-    assume(sys.env.get("HEROKU_USERNAME").isDefined)
-    assume(sys.env.get("HEROKU_PASSWORD").isDefined)
+    val netRC = new File(System.getProperty("user.home"), ".netrc")
+    val maybeAuthKey: Option[String] = if (netRC.exists) {
+      import imagej.updater.webdav.NetrcParser
+      import imagej.updater.webdav.NetrcParser.Credentials
 
-    val maybeAuthKey = for {
-      username <- sys.env.get("HEROKU_USERNAME")
-      password <- sys.env.get("HEROKU_PASSWORD")
-    } yield {
-      val f = TestHerokuAPI.getApiKey(username, password)
-      f.onComplete {
-        case Success(_) => // cool
-        case Failure(exp) => fail(exp)
+      val credentials: Credentials = new NetrcParser().getCredentials("api.heroku.com")
+      val f = TestHerokuAPI.getApiKey(credentials.getUsername, credentials.getPassword)
+      f.onFailure { case exp => fail(exp) }
+      Some(f.futureValue)
+    } else {
+      assume(sys.env.get("HEROKU_USERNAME").isDefined)
+      assume(sys.env.get("HEROKU_PASSWORD").isDefined)
+      for {
+        username <- sys.env.get("HEROKU_USERNAME")
+        password <- sys.env.get("HEROKU_PASSWORD")
+      } yield {
+        val f = TestHerokuAPI.getApiKey(username, password)
+        f.onFailure { case exp => fail(exp) }
+        f.futureValue
       }
-      f.futureValue
     }
-
     maybeAuthKey must be('defined)
-
     testCode(maybeAuthKey)
   }
 
