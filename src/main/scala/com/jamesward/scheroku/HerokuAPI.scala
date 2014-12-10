@@ -242,8 +242,17 @@ case class HerokuApp(appName: HerokuAppName, web_url: String)(implicit val ec: E
   def configVars(implicit apiKey: HerokuApiKey): Future[JsValue] =
     ws(s"apps/$appName/config-vars").get().flatMap(handle(Status.OK, identity))
 
+  /** Appends given configVars to Heroku app's pre-existing config vars */
+  // TODO redefine as += instead of setter
   def configVars_=(configVars: Map[String, String])(implicit apiKey: HerokuApiKey): Future[JsValue] =
     ws(s"apps/$appName/config-vars").patch(Json.toJson(configVars)).flatMap(handle(Status.OK, identity)) // "edge" did not help
+
+  /** Replaces Heroku app's pre-existing config vars with given configVars */
+  def configVars_=(configVars: Map[String, String])(implicit apiKey: HerokuApiKey): Future[JsValue] =
+    for {
+      reponse1 <- ws(s"apps/$appName/config-vars").patch(Json.toJson(()))
+      reponse2 <- ws(s"apps/$appName/config-vars").patch(Json.toJson(configVars))
+    } yield handle(Status.OK, identity)(reponse2)
 }
 
 object Dyno {

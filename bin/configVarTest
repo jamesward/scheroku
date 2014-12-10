@@ -1,0 +1,26 @@
+#/bin/bash
+
+export APP_ID_OR_NAME=playpen-1234
+
+function getVars {
+  curl -n -X GET https://api.heroku.com/apps/$APP_ID_OR_NAME/config-vars \
+    -H "Accept: application/vnd.heroku+json; version=3"
+}
+
+function setVars {
+  echo "Setting to $1"
+  curl -n -X PATCH https://api.heroku.com/apps/$APP_ID_OR_NAME/config-vars \
+    -H "Accept: application/vnd.heroku+json; version=3" \
+    -H "Content-Type: application/json" \
+    -d "$1"
+}
+
+function clearVars {
+  setVars '{}'
+}
+
+getVars
+setVars '{ "FOO": "bar", "BAZ": "qux" }'
+getVars
+clearVars
+getVars
