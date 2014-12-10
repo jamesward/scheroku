@@ -149,8 +149,7 @@ object HerokuApp {
   import play.api.libs.json._
   import play.api.libs.functional.syntax._
   import scala.language.implicitConversions
-
-  implicit val herokuAppNameFormat = Json.format[HerokuAppName]
+  import HerokuAppName._
 
   implicit val herokuAppWrites = new Writes[HerokuApp] {
     def writes(herokuApp: HerokuApp): JsValue =
@@ -234,21 +233,17 @@ case class HerokuApp(appName: HerokuAppName, web_url: String)(implicit val ec: E
     import collection.mutable
 
     val params = mutable.Map("command" -> command, "size" -> dynoSize.size)
-    attach foreach { a =>
-      params += "attach" -> a.toString
-    }
-    env foreach { e =>
-      params += "env" -> Json.toJson(e).toString
-    }
+    attach foreach { a =>  params += "attach" -> a.toString }
+    env foreach { e => params += "env" -> Json.toJson(e).toString }
     val requestJson = Json.toJson(params.toMap)
     ws(s"apps/$appName/dynos").post(requestJson)
   }
 
-  def getConfigVars(implicit apiKey: HerokuApiKey): Future[JsValue] =
-    ws(s"apps/$appName/config-vars", apiKey.toString).get().flatMap(handle(Status.OK, identity))
+  def configVars(implicit apiKey: HerokuApiKey): Future[JsValue] =
+    ws(s"apps/$appName/config-vars").get().flatMap(handle(Status.OK, identity))
 
-  def setConfigVars(configVars: JsValue)(implicit apiKey: HerokuApiKey): Future[JsValue] =
-    ws(s"apps/$appName/config-vars", apiKey.toString).patch(configVars).flatMap(handle(Status.OK, identity))
+  def configVars_=(configVars: Map[String, String])(implicit apiKey: HerokuApiKey): Future[JsValue] =
+    ws(s"apps/$appName/config-vars").patch(Json.toJson(configVars)).flatMap(handle(Status.OK, identity)) // "edge" did not help
 }
 
 object Dyno {
@@ -270,7 +265,6 @@ case class Dyno(dynoIdOrName: String) {
   // todo figure out return type for JSON
   def dynoInfo(implicit apiKey: HerokuApiKey, appName: HerokuAppName): Future[WSResponse] =
     ws(s"apps/$appName/dynos/$dynoIdOrName").get()
-
 }
 
 /** Provide strong typing for API parameters */

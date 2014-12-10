@@ -8,10 +8,6 @@ import org.scalatest.concurrent.ScalaFutures
 
 import play.api.libs.json.Json
 
-import scala.concurrent.Await
-import scala.concurrent.duration._
-import scala.util.{Failure, Success}
-
 import scala.concurrent.ExecutionContext.Implicits.global
 import play.api.libs.ws.WSResponse
 
@@ -19,16 +15,19 @@ object TestHerokuAPI extends HerokuAPI {
   override val ec = global
 }
 
-class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with HerokuApiImplicits {
-  import HerokuApp._
-  import HerokuAppName._
-
-  override implicit val patienceConfig: PatienceConfig = PatienceConfig(Span(30, Seconds))
-
+object HerokuAPISpec {
   def happyStatus(wsResult: WSResponse): Boolean = {
     val status = wsResult.status
     status>=200 && status<400
   }
+}
+
+class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with HerokuApiImplicits {
+  import HerokuApp._
+  import HerokuAppName._
+  import HerokuAPISpec._
+
+  override implicit val patienceConfig: PatienceConfig = PatienceConfig(Span(30, Seconds))
 
   "json conversion" must {
     "work" in {
@@ -151,7 +150,31 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with He
     }
   }
 
-  // clean up the app
+  "config vars" must {
+    "be manipulable" in withApp { maybeAuthAndApp =>
+      import HerokuApp._
+
+      type StringMap = Map[String, String]
+      maybeAuthAndApp.map {
+        case (apiKey, herokuApp, appDir) =>
+          implicit val appName = herokuApp.appName
+          implicit val apiKeyVal = apiKey.asApiKey
+
+          assert(Json.fromJson[StringMap](herokuApp.configVars.futureValue).get == Map.empty[String, String])
+
+          val configVars1 = Map("name1" -> "value1", "name2" -> "value2")
+          herokuApp.configVars = configVars1
+          assert(Json.fromJson[StringMap](herokuApp.configVars.futureValue).get == configVars1) // Map() did not equal Map("name1" -> "value1", "name2" -> "value2")
+
+          val configVars2 = Map("name3" -> "value3")
+          assert(Json.fromJson[StringMap](herokuApp.configVars.futureValue).get == configVars2) // Not sure if this will append or replace
+
+          val configVarsAll = configVars1 ++ configVars2
+          assert(Json.fromJson[StringMap](herokuApp.configVars.futureValue).get == configVarsAll)
+      }
+    }
+  }
+
   "logs" must {
     "get the log stream" in withApp { maybeAuthAndApp =>
       maybeAuthAndApp.map {
