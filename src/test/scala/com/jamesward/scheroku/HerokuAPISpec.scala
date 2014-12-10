@@ -13,6 +13,7 @@ import scala.concurrent.duration._
 import scala.util.{Failure, Success}
 
 import scala.concurrent.ExecutionContext.Implicits.global
+import play.api.libs.ws.WSResponse
 
 object TestHerokuAPI extends HerokuAPI {
   override val ec = global
@@ -23,6 +24,11 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with He
   import HerokuAppName._
 
   override implicit val patienceConfig: PatienceConfig = PatienceConfig(Span(30, Seconds))
+
+  def happyStatus(wsResult: WSResponse): Boolean = {
+    val status = wsResult.status
+    status>=200 && status<400
+  }
 
   "json conversion" must {
     "work" in {
@@ -159,16 +165,21 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with He
     }
   }
 
-  "restartDyno" must {
-    "restart a Heroku dyno" in withApp {
+  "dynos" must {
+    "go through lifecycle" in withApp {
       case Some((apiKey, herokuApp, appDir)) =>
         implicit val appName = herokuApp.appName
         implicit val apiKeyVal = apiKey.asApiKey
 
-        TestHerokuAPI.dynoRestart("Dino")
+        val wsResponse1: WSResponse = herokuApp.dynoCreate("Dino").futureValue
+        assert(happyStatus(wsResponse1), s"Dino creation failed: ${wsResponse1.body}")
+        val dynoId = (wsResponse1.json \ "id").toString().replace("\"", "")
+
+        val wsResponse2: WSResponse = herokuApp.dynoRestart(dynoId).futureValue
+        assert(happyStatus(wsResponse2), "Dino failed to restart")
 
       case None =>
-        info("No app?!")
+        fail("No app?!")
     }
   }
 

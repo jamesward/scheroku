@@ -206,15 +206,30 @@ case class HerokuApp(appName: HerokuAppName, web_url: String)(implicit val ec: E
   def destroyApp()(implicit apiKey: HerokuApiKey): Future[WSResponse] =
     ws(s"apps/$appName").delete()
 
+  /** @return Typical response (from Heroku docs): <pre>{
+    "attach_url": "rendezvous://rendezvous.runtime.heroku.com:5000/{rendezvous-id}",
+    "command": "bash",
+    "created_at": "2012-01-01T12:00:00Z",
+    "id": "01234567-89ab-cdef-0123-456789abcdef",
+    "name": "run.1",
+    "release": {
+      "id": "01234567-89ab-cdef-0123-456789abcdef",
+      "version": 11
+    },
+    "size": "1X",
+    "state": "up",
+    "type": "run",
+    "updated_at": "2012-01-01T12:00:00Z"
+  }</pre> */
   def dynoCreate(command: String, dynoSize: DynoSizeEnum=X1, attach: Option[Boolean]=None, env: Option[Map[String, String]]=None)
                 (implicit apiKey: HerokuApiKey): Future[WSResponse] = {
     import collection.mutable
 
-    val params = mutable.Map("command" -> command, "size" -> dynoSize.name)
+    val params = mutable.Map("command" -> command, "size" -> dynoSize.size)
     attach foreach { a =>
       params += "attach" -> a.toString
     }
-      env foreach { e =>
+    env foreach { e =>
       params += "env" -> Json.toJson(e).toString
     }
     val requestJson = Json.toJson(params.toMap)
@@ -272,9 +287,31 @@ object HerokuAppName {
 
 /** Lots of API method parameters are repetitive, so use implicits to clean up API */
 trait HerokuApiImplicits {
+  implicit class RichWSResponse(wsResponse: WSResponse) {
+    import play.api.libs.json._
+    import play.api.libs.functional.syntax._
+
+    implicit val dynoInfoFormat = Json.format[DynoInfo]
+
+    def asDynoInfo: DynoInfo = Json.fromJson(wsResponse.json).get
+  }
+
   implicit class RichString(string: String) {
     def asApiKey = HerokuApiKey(string)
 
     def asAppName = HerokuAppName(string)
   }
 }
+
+case class DynoInfo(
+  attach_url: String,
+  command: String,
+  created_at: String,
+  id: String,
+  name: String,
+  release: Map[String, String],
+  size: String,
+  state: String,
+  `type`: String,
+  updated_at: String
+ )
