@@ -89,7 +89,8 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with He
     val appDir = new File(sys.props("java.io.tmpdir"), System.nanoTime().toString)
     withLogin(appDir) { maybeApiKey =>
       val maybeApiKeyAndApp = maybeApiKey.map { apiKey =>
-        val herokuApp = TestHerokuAPI.createApp()(apiKey.asApiKey).futureValue
+        implicit val apiKey2 = apiKey.asApiKey
+        val herokuApp = HerokuApp.create().futureValue
         (apiKey, herokuApp, appDir)
       }
       try {
@@ -115,24 +116,24 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with He
     }
   }
 
-  "getApps" must {
+  "get all HerokuApps" must {
     "fail with an invalid apikey" in withApp { maybeAuthAndApp =>
       maybeAuthAndApp.map {
         case (apiKey, herokuApp, appDir) =>
           implicit val appName = herokuApp.appName
           implicit val apiKeyVal = apiKey.asApiKey
 
-          TestHerokuAPI.getApps.onFailure { case _ => fail("should fail") }
+          HerokuApp.getAll.onFailure { case _ => fail("should fail") }
       }
     }
 
-    "work with an apikey" in withApp { maybeAuthAndApp =>
+    "work with an APIKey" in withApp { maybeAuthAndApp =>
       maybeAuthAndApp.map {
         case (apiKey, herokuApp, appDir) =>
           implicit val appName = herokuApp.appName
           implicit val apiKeyVal = apiKey.asApiKey
 
-          TestHerokuAPI.getApps.futureValue.size must be > 0
+          HerokuApp.getAll.futureValue.size must be > 0
       }
     }
 
@@ -142,7 +143,7 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with He
           implicit val appName = herokuApp.appName
           implicit val apiKeyVal = apiKey.asApiKey
 
-          val allHerokuApps: Seq[HerokuApp] = TestHerokuAPI.getApps.futureValue
+          val allHerokuApps: Seq[HerokuApp] = HerokuApp.getAll.futureValue
           allHerokuApps.size must be > 0
           val newHerokuApp = allHerokuApps.filter(_.appName == herokuApp.appName)
           newHerokuApp.size must equal(1)
@@ -171,11 +172,11 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with He
         implicit val appName = herokuApp.appName
         implicit val apiKeyVal = apiKey.asApiKey
 
-        val wsResponse1: WSResponse = herokuApp.dynoCreate("Dino").futureValue
+        val wsResponse1: WSResponse = herokuApp.createDyno("Dino").futureValue
         assert(happyStatus(wsResponse1), s"Dino creation failed: ${wsResponse1.body}")
         val dynoId = (wsResponse1.json \ "id").toString().replace("\"", "")
 
-        val wsResponse2: WSResponse = herokuApp.dynoRestart(dynoId).futureValue
+        val wsResponse2: WSResponse = Dyno(dynoId).restart.futureValue
         assert(happyStatus(wsResponse2), "Dino failed to restart")
 
       case None =>
