@@ -32,3 +32,19 @@ logBuffered in Test := false
 Keys.fork in Test := false
 parallelExecution in Test := false
 logLevel in test := Level.Info // Level.INFO is needed to see detailed output when running tests
+
+// define the statements initially evaluated when entering 'console', 'console-quick', or 'console-project'
+initialCommands := """import java.io.File
+                     |import java.net.URL
+                     |import com.jamesward.scheroku._
+                     |import com.jamesward.scheroku.HerokuAPI._
+                     |import com.jamesward.scheroku.HerokuApp._
+                     |import com.jamesward.scheroku.HerokuAppName._
+                     |import com.jamesward.scheroku.Dyno._
+                     |import com.micronautics.scheroku.DynoSizeEnum
+                     |import com.micronautics.scheroku.DynoSizeEnum._
+                     |import play.api.libs.json.Json
+                     |import play.api.libs.ws.WSResponse
+                     |import imagej.updater.webdav.NetrcParser
+                     |import scala.concurrent.ExecutionContext.Implicits.global
+                     |""".stripMargin
