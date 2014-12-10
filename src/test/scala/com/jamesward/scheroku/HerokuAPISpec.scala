@@ -19,21 +19,40 @@ object TestHerokuAPI extends HerokuAPI {
 }
 
 class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with HerokuApiImplicits {
+  import HerokuApp._
+  import HerokuAppName._
+
   override implicit val patienceConfig: PatienceConfig = PatienceConfig(Span(30, Seconds))
-  "login with invalid credentials" must {
-    "fail" in {
-      TestHerokuAPI.getApiKey("foo@foo.com", "bar").onSuccess { case _ => fail("should fail") }
+
+  "json conversion" must {
+    "work" in {
+      val herokuAppName = HerokuAppName("testApp")
+      val jsonName = Json.toJson(herokuAppName)
+      val herokuAppName2 = Json.fromJson[HerokuAppName](jsonName).get
+      assert(herokuAppName==herokuAppName2)
+
+      val herokuApp = HerokuApp(herokuAppName, "http://blah.com")(scala.concurrent.ExecutionContext.Implicits.global)
+      val jsonApp = Json.toJson(herokuApp)
+      val herokuApp2: HerokuApp = Json.fromJson[HerokuApp](jsonApp).get
+      assert(herokuApp.name==herokuApp2.name)
+      assert(herokuApp.web_url==herokuApp2.web_url)
     }
   }
 
-  def withLogin(appDir: File)(testCode: Option[String] => Any) = {
+  "login with invalid credentials" must {
+    "fail" in {
+      HerokuAPI.getApiKey("foo@foo.com", "bar").onSuccess { case _ => fail("should fail") }
+    }
+  }
+
+  def withLogin(appDir: File)(testCode: Option[String] => Unit) = {
     val netRC = new File(System.getProperty("user.home"), ".netrc")
     val maybeAuthKey: Option[String] = if (netRC.exists) {
       import imagej.updater.webdav.NetrcParser
       import imagej.updater.webdav.NetrcParser.Credentials
 
       val credentials: Credentials = new NetrcParser().getCredentials("api.heroku.com")
-      val f = TestHerokuAPI.getApiKey(credentials.getUsername, credentials.getPassword)
+      val f = HerokuAPI.getApiKey(credentials.getUsername, credentials.getPassword)
       f.onFailure { case exp =>
         fail(exp)
       }
@@ -45,7 +64,7 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with He
         username <- sys.env.get("HEROKU_USERNAME")
         password <- sys.env.get("HEROKU_PASSWORD")
       } yield {
-        val f = TestHerokuAPI.getApiKey(username, password)
+        val f = HerokuAPI.getApiKey(username, password)
         f.onFailure { case exp => fail(exp) }
         f.futureValue
       }
@@ -60,7 +79,7 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with He
     }
   }
 
-  def withApp(testCode: Option[(String, TestHerokuAPI.App, File)] => Any) = {
+  def withApp(testCode: Option[(String, HerokuApp, File)] => Any) = {
     val appDir = new File(sys.props("java.io.tmpdir"), System.nanoTime().toString)
     withLogin(appDir) { maybeApiKey =>
       val maybeApiKeyAndApp = maybeApiKey.map { apiKey =>
@@ -69,15 +88,17 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with He
       }
       try {
         testCode(maybeApiKeyAndApp)
+        ()
       } finally {
         maybeApiKeyAndApp.map {
           case (apiKey, herokuApp, tmpAppDir) =>
-            implicit val appName = herokuApp.name.asAppName
+            implicit val appName: HerokuAppName = herokuApp.name
             implicit val apiKeyVal = apiKey.asApiKey
 
             TestHerokuAPI.destroyApp()
             tmpAppDir.delete()
         }
+        ()
       }
     }
   }
@@ -85,7 +106,6 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with He
   "createApp" must {
     "create an app on Heroku" in withApp { maybeAuthAndApp =>
       maybeAuthAndApp must be('defined)
-      ()
     }
   }
 
@@ -93,37 +113,34 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with He
     "fail with an invalid apikey" in withApp { maybeAuthAndApp =>
       maybeAuthAndApp.map {
         case (apiKey, herokuApp, appDir) =>
-          implicit val appName = herokuApp.name.asAppName
+          implicit val appName = herokuApp.name
           implicit val apiKeyVal = apiKey.asApiKey
 
           TestHerokuAPI.getApps.onFailure { case _ => fail("should fail") }
       }
-      ()
     }
 
     "work with an apikey" in withApp { maybeAuthAndApp =>
       maybeAuthAndApp.map {
         case (apiKey, herokuApp, appDir) =>
-          implicit val appName = herokuApp.name.asAppName
+          implicit val appName = herokuApp.name
           implicit val apiKeyVal = apiKey.asApiKey
 
           TestHerokuAPI.getApps.futureValue.size must be > 0
       }
-      ()
     }
 
     "get the app that was created" in withApp { maybeAuthAndApp =>
       maybeAuthAndApp.map {
         case (apiKey, herokuApp, appDir) =>
-          implicit val appName = herokuApp.name.asAppName
+          implicit val appName = herokuApp.name
           implicit val apiKeyVal = apiKey.asApiKey
 
-          val allHerokuApps = TestHerokuAPI.getApps.futureValue
+          val allHerokuApps: Seq[HerokuApp] = TestHerokuAPI.getApps.futureValue
           allHerokuApps.size must be > 0
           val newHerokuApp = allHerokuApps.filter(_.name == herokuApp.name)
           newHerokuApp.size must equal(1)
       }
-      ()
     }
   }
 
@@ -132,7 +149,7 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with He
     "get the log stream" in withApp { maybeAuthAndApp =>
       maybeAuthAndApp.map {
         case (apiKey, herokuApp, appDir) =>
-          implicit val appName = herokuApp.name.asAppName
+          implicit val appName = herokuApp.name
           implicit val apiKeyVal = apiKey.asApiKey
 
           // Wait here because it takes a few for the Heroku logplex to be enabled
@@ -140,13 +157,12 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with He
           (TestHerokuAPI.logs.futureValue \ "logplex_url").asOpt[String] must be('defined)
       }
     }
-    ()
   }
 
   "restartDyno" must {
     "restart a Heroku dyno" in withApp {
       case Some((apiKey, herokuApp, appDir)) =>
-        implicit val appName = herokuApp.name.asAppName
+        implicit val appName = herokuApp.name
         implicit val apiKeyVal = apiKey.asApiKey
 
         TestHerokuAPI.dynoRestart("Dino")
@@ -154,7 +170,6 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with He
       case None =>
         info("No app?!")
     }
-    ()
   }
 
   // todo: test createSlug

@@ -16,43 +16,26 @@ import play.api.mvc.Results
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future, Promise}
 
-/** Provide strong typing for API parameters */
-case class APIKey(apiKey: String) extends AnyVal {
-  override def toString = apiKey
-}
-
-/** Provide strong typing for API parameters */
-case class AppName(appName: String) extends AnyVal {
-  override def toString = appName
-}
-
-/** Lots of API method parameters are repetitive, so use implicits to clean up API */
-trait HerokuApiImplicits {
-  implicit class RichString(string: String) {
-    def asApiKey = APIKey(string)
-
-    def asAppName = AppName(string)
-  }
-}
-
-trait HerokuAPI extends HerokuApiImplicits {
-  implicit val ec: ExecutionContext
-
+object HerokuAPI {
   class HerokuWS extends WSAPI {
     val builder = new NingAsyncHttpClientConfigBuilder(DefaultWSClientConfig())
     override def client: WSClient = new NingWSClient(builder.build())
     override def url(url: String): WSRequestHolder = client.url(url)
   }
 
-  /** This method is just for the login API, which is only available from the old Heroku API. */
-  def wsOld(path: String): WSRequestHolder = new HerokuWS().url(s"https://api.heroku.com/$path")
+  /** Invokes version 1 of the Heroku API for the login API. */
+  def wsV1(path: String): WSRequestHolder = new HerokuWS().url(s"https://api.heroku.com/$path")
 
-  // this one uses version 3
-  def ws(path: String, version: String = "3")(implicit apiKey: APIKey): WSRequestHolder =
-    wsOld(path).withAuth("", apiKey.toString, WSAuthScheme.BASIC).withHeaders("Accept" -> s"application/vnd.heroku+json; version=$version")
+  /** This method enhances `wsV1` to use any version of the Heroku API. By default, it uses version 3. */
+  def ws(path: String, version: String="3")(implicit apiKey: HerokuApiKey): WSRequestHolder =
+    wsV1(path)
+      .withAuth("", apiKey.toString, WSAuthScheme.BASIC)
+      .withHeaders("Accept" -> s"application/vnd.heroku+json; version=$version")
 
   def getError(response: WSResponse): String =
-    (response.json \ "error").asOpt[String].orElse((response.json \ "message").asOpt[String]).getOrElse("Unknown Error")
+    (response.json \ "error").asOpt[String]
+      .orElse((response.json \ "message").asOpt[String])
+      .getOrElse("Unknown Error")
 
   def handleAsync[A](status: Int, block: JsValue => Future[A])(response: WSResponse): Future[A] = {
     response.status match {
@@ -74,13 +57,23 @@ trait HerokuAPI extends HerokuApiImplicits {
     }
   }
 
-  def getApiKey(username: String, password: String): Future[String] =
-    wsOld("account").withAuth(username, password, WSAuthScheme.BASIC).get().flatMap(handle(Status.OK, _.\("api_key").as[String]))
+  def getApiKey(username: String, password: String)(implicit ec: ExecutionContext): Future[String] =
+    wsV1("account")
+      .withAuth(username, password, WSAuthScheme.BASIC).get()
+      .flatMap(handle(Status.OK, _.\("api_key").as[String]))
+}
 
-  def createApp()(implicit apiKey: APIKey): Future[App] =
-    ws("apps").post(Results.EmptyContent()).flatMap(handle(Status.CREATED, _.as[App]))
+trait HerokuAPI extends HerokuApiImplicits {
+  import HerokuAPI._
 
-  def appSetup(blobUrl: String)(implicit apiKey: APIKey): Future[JsValue] = {
+  implicit val ec: ExecutionContext
+
+  def createApp()(implicit apiKey: HerokuApiKey): Future[HerokuApp] =
+    ws("apps")
+      .post(Results.EmptyContent())
+      .flatMap(handle(Status.CREATED, _.as[HerokuApp]))
+
+  def appSetup(blobUrl: String)(implicit apiKey: HerokuApiKey): Future[JsValue] = {
     val requestJson = Json.obj("source_blob" -> Json.obj("url" -> blobUrl))
     ws("app-setups", "edge").post(requestJson).flatMap { response =>
       val id = (response.json \ "id").as[String]
@@ -112,72 +105,51 @@ trait HerokuAPI extends HerokuApiImplicits {
     }
   }
 
-  def appSetupStatus(id: String)(implicit apiKey: APIKey): Future[JsValue] =
-    ws(s"app-setups/$id",  "edge").get().flatMap(handle(Status.OK, identity))
+  def appSetupStatus(id: String)(implicit apiKey: HerokuApiKey): Future[JsValue] =
+    ws(s"app-setups/$id", "edge").get()
+      .flatMap(handle(Status.OK, identity))
 
-  def destroyApp()(implicit apiKey: APIKey, appName: AppName): Future[_] =
+  def destroyApp()(implicit apiKey: HerokuApiKey, appName: HerokuAppName): Future[_] =
     ws(s"apps/$appName").delete()
 
   // todo figure out return type for JSON
-  def dynoCreate(blobUrl: String)(implicit apiKey: APIKey): Future[_] = {
+  def dynoCreate(blobUrl: String)(implicit apiKey: HerokuApiKey): Future[_] = {
     val requestJson = Json.obj("source_blob" -> Json.obj("url" -> blobUrl))
-    for { response <- ws("app-setups", "edge").post(requestJson) } yield {
+    for {response <- ws("app-setups", "edge").post(requestJson)} yield {
       (response.json \ "id").as[String]
     }
   }
 
-  def dynoRestart(dynoIdOrName: String)(implicit apiKey: APIKey, appName: AppName): Future[_] =
+  def dynoRestart(dynoIdOrName: String)(implicit apiKey: HerokuApiKey, appName: HerokuAppName): Future[_] =
     ws(s"apps/$appName/dynos/$dynoIdOrName").delete()
 
   // todo figure out return type for JSON
-  def dynoInfo(dynoIdOrName: String)(implicit apiKey: APIKey, appName: AppName): Future[_] =
+  def dynoInfo(dynoIdOrName: String)(implicit apiKey: HerokuApiKey, appName: HerokuAppName): Future[_] =
     ws(s"apps/$appName/dynos/$dynoIdOrName").get()
 
   // todo figure out return type for JSON
-  def dynosList(implicit apiKey: APIKey, appName: AppName): Future[_] =
+  def dynosList(implicit apiKey: HerokuApiKey, appName: HerokuAppName): Future[_] =
     ws(s"apps/$appName").get()
 
-  def dynosRestartAll(implicit apiKey: APIKey, appName: AppName): Future[_] =
+  def dynosRestartAll(implicit apiKey: HerokuApiKey, appName: HerokuAppName): Future[_] =
     ws(s"apps/$appName/dynos").delete()
 
-  def getApps(implicit apiKey: APIKey): Future[Seq[App]] =
-    ws("apps").get().flatMap(handle(Status.OK, _.as[Seq[App]]))
+  def getApps(implicit apiKey: HerokuApiKey): Future[Seq[HerokuApp]] =
+    ws("apps").get()
+      .flatMap(handle(Status.OK, _.as[Seq[HerokuApp]]))
 
-  def logs(implicit apiKey: APIKey, appName: AppName): Future[JsValue] = {
+  def logs(implicit apiKey: HerokuApiKey, appName: HerokuAppName): Future[JsValue] = {
     val requestJson = Json.obj("tail" -> true, "lines" -> 10)
     ws(s"apps/$appName/log-sessions").post(requestJson).flatMap(handle(Status.CREATED, identity))
   }
 
-  def buildResult(id: String)(implicit apiKey: APIKey, appName: AppName): Future[JsValue] =
-    ws(s"apps/$appName/builds/$id/result").get().flatMap(handle(Status.OK, identity))
+  def buildResult(id: String)(implicit apiKey: HerokuApiKey, appName: HerokuAppName): Future[JsValue] =
+    ws(s"apps/$appName/builds/$id/result").get()
+      .flatMap(handle(Status.OK, identity))
 
   // todo: logplex doesn't chunk the response so it doesn't show up right away
   def logStream(url: String): Future[(WSResponseHeaders, Enumerator[Array[Byte]])] =
     new HerokuWS().url(url).stream()
-
-  def createSlug(appDir: File)(implicit apiKey: APIKey, appName: AppName): Future[String] = {
-    val requestJson = Json.obj("process_types" -> Json.obj())
-
-    ws(s"/apps/$appName/slugs").post(requestJson).flatMap(handleAsync(Status.CREATED, { response =>
-      val id = (response \ "id").as[String]
-      val url = (response \ "blob" \ "url").as[String]
-      val tgzFile = new File(sys.props("java.io.tmpdir"), System.nanoTime().toString + ".tar.gz")
-
-      val tgzos = new TarArchiveOutputStream(new GZIPOutputStream(new BufferedOutputStream(new FileOutputStream(tgzFile))))
-      if (appDir.listFiles != null)  // start with the files, not the dir
-        appDir.listFiles.foreach { file => addToTar(tgzos, file.getAbsolutePath, "") }
-      tgzos.finish()
-      tgzos.close()
-
-      // put the tgz
-      new HerokuWS().url(url).put(tgzFile).flatMap { _ =>
-        tgzFile.delete()
-
-        // get the url to the slug
-        ws(s"apps/$appName/slugs/$id").get().flatMap(handle(Status.OK, _.\("blob").\("url").as[String]))
-      }
-    }))
-  }
 
   /** side effecting!!! */
   def addToTar(tOut: TarArchiveOutputStream, path: String, base: String): Unit = {
@@ -199,21 +171,97 @@ trait HerokuAPI extends HerokuApiImplicits {
       }
     }
   }
+}
 
-  def buildSlug(url: String)(implicit apiKey: APIKey, appName: AppName): Future[JsValue] = {
+case class HerokuApp(name: HerokuAppName, web_url: String)(implicit val ec: ExecutionContext) extends HerokuAPI {
+  import HerokuAPI._
+
+  def buildSlug(url: String)(implicit apiKey: HerokuApiKey): Future[JsValue] = {
     val requestJson = Json.obj("source_blob" -> Json.obj("url" -> url))
 
     // set the api version to 'edge' in order to get the output_stream_url
-    ws(s"apps/$appName/builds", "edge").post(requestJson).flatMap(handle(Status.CREATED, identity))
+    ws(s"apps/$name/builds", "edge").post(requestJson).flatMap(handle(Status.CREATED, identity))
   }
 
-  def getConfigVars(implicit apiKey: APIKey, appName: AppName): Future[JsValue] =
-    ws(s"apps/$appName/config-vars", apiKey.toString).get().flatMap(handle(Status.OK, identity))
+  def createSlug(appDir: File)(implicit apiKey: HerokuApiKey): Future[String] = {
+    val requestJson = Json.obj("process_types" -> Json.obj())
 
-  def setConfigVars(configVars: JsValue)(implicit apiKey: APIKey, appName: AppName): Future[JsValue] =
-    ws(s"apps/$appName/config-vars", apiKey.toString).patch(configVars).flatMap(handle(Status.OK, identity))
+    ws(s"/apps/$name/slugs").post(requestJson).flatMap(handleAsync(Status.CREATED, { response =>
+      val id = (response \ "id").as[String]
+      val url = (response \ "blob" \ "url").as[String]
+      val tgzFile = new File(sys.props("java.io.tmpdir"), System.nanoTime().toString + ".tar.gz")
 
-  case class App(name: String, web_url: String)
+      val tgzos = new TarArchiveOutputStream(new GZIPOutputStream(new BufferedOutputStream(new FileOutputStream(tgzFile))))
+      if (appDir.listFiles != null)  // start with the files, not the dir
+        appDir.listFiles.foreach { file => addToTar(tgzos, file.getAbsolutePath, "") }
+      tgzos.finish()
+      tgzos.close()
 
-  implicit val appFormat = Json.format[App]
+      // put the tgz
+      new HerokuWS().url(url).put(tgzFile).flatMap { _ =>
+        tgzFile.delete()
+
+        // get the url to the slug
+        ws(s"apps/$name/slugs/$id").get().flatMap(handle(Status.OK, _.\("blob").\("url").as[String]))
+      }
+    }))
+  }
+
+  def getConfigVars(implicit apiKey: HerokuApiKey): Future[JsValue] =
+    ws(s"apps/$name/config-vars", apiKey.toString).get().flatMap(handle(Status.OK, identity))
+
+  def setConfigVars(configVars: JsValue)(implicit apiKey: HerokuApiKey): Future[JsValue] =
+    ws(s"apps/$name/config-vars", apiKey.toString).patch(configVars).flatMap(handle(Status.OK, identity))
+}
+
+object HerokuApp {
+  import play.api.libs.json._
+  import play.api.libs.functional.syntax._
+
+  import scala.language.implicitConversions
+
+  implicit val herokuAppWrites = new Writes[HerokuApp] {
+    def writes(herokuApp: HerokuApp): JsValue =
+      Json.obj(
+        "name" -> herokuApp.name.toString,
+        "web_url" -> herokuApp.web_url
+      )
+  }
+
+  implicit def herokuAppReads(implicit ec: ExecutionContext): Reads[HerokuApp] = (
+      (__ \ "name").read[String].map { name => HerokuAppName(name) } ~
+      (__ \ "web_url").read[String]
+    )(HerokuApp.apply _)
+
+  implicit val herokuAppNameFormat = Json.format[HerokuAppName]
+}
+
+class Dyno {
+  // TODO write me
+}
+
+/** Provide strong typing for API parameters */
+case class HerokuApiKey(apiKey: String) extends AnyVal {
+  override def toString = apiKey
+}
+
+/** Provide strong typing for API parameters */
+case class HerokuAppName(appName: String) extends AnyVal {
+  override def toString = appName
+}
+
+object HerokuAppName {
+  import play.api.libs.json._
+  import play.api.libs.functional.syntax._
+
+  implicit val herokuAppNameFormat = Json.format[HerokuAppName]
+}
+
+/** Lots of API method parameters are repetitive, so use implicits to clean up API */
+trait HerokuApiImplicits {
+  implicit class RichString(string: String) {
+    def asApiKey = HerokuApiKey(string)
+
+    def asAppName = HerokuAppName(string)
+  }
 }
