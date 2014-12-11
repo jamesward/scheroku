@@ -15,12 +15,8 @@ function setVars {
     -d "$1"
 }
 
-function clearVars {
-  setVars '{}'
-}
-
 getVars
 setVars '{ "FOO": "bar", "BAZ": "qux" }'
 getVars
-clearVars
+setVars '{ "FOO": null, "BAZ": null }'
 getVars

@@ -1,14 +1,14 @@
 package com.jamesward.scheroku
 
 import java.io.File
-
+import HerokuAPISpec._
 import org.scalatest.time.{Seconds, Span}
 import org.scalatest.{WordSpec, MustMatchers}
 import org.scalatest.concurrent.ScalaFutures
-
 import play.api.libs.json.Json
-
 import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.Await
+import scala.concurrent.duration._
 import play.api.libs.ws.WSResponse
 
 object TestHerokuAPI extends HerokuAPI {
@@ -23,10 +23,6 @@ object HerokuAPISpec {
 }
 
 class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with HerokuApiImplicits {
-  import HerokuApp._
-  import HerokuAppName._
-  import HerokuAPISpec._
-
   override implicit val patienceConfig: PatienceConfig = PatienceConfig(Span(30, Seconds))
 
   "json conversion" must {
@@ -46,7 +42,7 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with He
 
   "login with invalid credentials" must {
     "fail" in {
-      HerokuAPI.getApiKey("foo@foo.com", "bar").onSuccess { case _ => fail("should fail") }
+      getApiKey("foo@foo.com", "bar").onSuccess { case _ => fail("should fail") }
     }
   }
 
@@ -57,7 +53,7 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with He
       import imagej.updater.webdav.NetrcParser.Credentials
 
       val credentials: Credentials = new NetrcParser().getCredentials("api.heroku.com")
-      val f = HerokuAPI.getApiKey(credentials.getUsername, credentials.getPassword)
+      val f = getApiKey(credentials.getUsername, credentials.getPassword)
       f.onFailure { case exp =>
         fail(exp)
       }
@@ -69,7 +65,7 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with He
         username <- sys.env.get("HEROKU_USERNAME")
         password <- sys.env.get("HEROKU_PASSWORD")
       } yield {
-        val f = HerokuAPI.getApiKey(username, password)
+        val f = getApiKey(username, password)
         f.onFailure { case exp => fail(exp) }
         f.futureValue
       }
@@ -87,9 +83,10 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with He
   def withApp(testCode: Option[(String, HerokuApp, File)] => Any) = {
     val appDir = new File(sys.props("java.io.tmpdir"), System.nanoTime().toString)
     withLogin(appDir) { maybeApiKey =>
-      val maybeApiKeyAndApp = maybeApiKey.map { apiKey =>
+      val maybeApiKeyAndApp: Option[(String, HerokuApp, File)] = maybeApiKey.map { apiKey =>
         implicit val apiKey2 = apiKey.asApiKey
         val herokuApp = HerokuApp.create().futureValue
+        println(s"Testing with new Heroku app ${herokuApp.appName}")
         (apiKey, herokuApp, appDir)
       }
       try {
@@ -103,6 +100,7 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with He
 
             TestHerokuAPI.destroyApp()
             tmpAppDir.delete()
+
         }
         ()
       }
@@ -110,8 +108,15 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with He
   }
 
   "createApp" must {
-    "create an app on Heroku" in withApp { maybeAuthAndApp =>
+    "create an app on Heroku and find it" in withApp { maybeAuthAndApp =>
       maybeAuthAndApp must be('defined)
+
+      maybeAuthAndApp foreach { authAndApp =>
+        import scala.concurrent.Future
+        implicit val apiKey = authAndApp._1.asApiKey
+        val maybeApp: Future[Option[HerokuApp]] = HerokuApp.get(authAndApp._2.appName)
+        maybeApp must be('defined)
+      }
     }
   }
 
@@ -152,25 +157,31 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with He
 
   "config vars" must {
     "be manipulable" in withApp { maybeAuthAndApp =>
-      import HerokuApp._
-
-      type StringMap = Map[String, String]
       maybeAuthAndApp.map {
         case (apiKey, herokuApp, appDir) =>
-          implicit val appName = herokuApp.appName
-          implicit val apiKeyVal = apiKey.asApiKey
+          implicit val appName: HerokuAppName = herokuApp.appName
+          implicit val apiKeyVal: HerokuApiKey = apiKey.asApiKey
 
-          assert(Json.fromJson[StringMap](herokuApp.configVars.futureValue).get == Map.empty[String, String])
+          assert(herokuApp.configVars.futureValue.vars == Map.empty[String, String])
 
-          val configVars1 = Map("name1" -> "value1", "name2" -> "value2")
-          herokuApp.configVars = configVars1
-          assert(Json.fromJson[StringMap](herokuApp.configVars.futureValue).get == configVars1) // Map() did not equal Map("name1" -> "value1", "name2" -> "value2")
+          val configVars1 = Map("name1" -> "value1")
+          Await.ready(herokuApp.addConfigVars(ConfigVars(configVars1)), 10 minutes)
+          assert(herokuApp.configVars.futureValue.vars == configVars1)
 
-          val configVars2 = Map("name3" -> "value3")
-          assert(Json.fromJson[StringMap](herokuApp.configVars.futureValue).get == configVars2) // Not sure if this will append or replace
+          val configVars2 = Map("name2" -> "value2")
+          Await.ready(herokuApp.addConfigVars(ConfigVars(configVars2)), 10 minutes)
+          assert(herokuApp.configVars.futureValue.vars == configVars1 ++ configVars2)
 
-          val configVarsAll = configVars1 ++ configVars2
-          assert(Json.fromJson[StringMap](herokuApp.configVars.futureValue).get == configVarsAll)
+          Await.ready(herokuApp.clearConfigVars(), 10 minutes)
+          assert(herokuApp.configVars.futureValue.vars == Map.empty[String, String])  // Map("name1" -> "value1", "name2" -> "value2") did not equal Map()
+
+          val configVars3 = Map("name3" -> "value3")
+          Await.ready(herokuApp.setConfigVars(ConfigVars(configVars3)), 10 minutes)
+          assert(herokuApp.configVars.futureValue.vars == configVars3) // Map("name1" -> "value1", "name2" -> "value2") did not equal Map("name3" -> "value3")
+
+          val configVarsAll = configVars1 ++ configVars2 ++ configVars3
+          Await.ready(herokuApp.configVars = ConfigVars(configVarsAll), 10 minutes)
+          assert(herokuApp.configVars.futureValue.vars == configVarsAll)
       }
     }
   }
@@ -195,16 +206,16 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with He
         implicit val appName = herokuApp.appName
         implicit val apiKeyVal = apiKey.asApiKey
 
-        val wsResponse1: WSResponse = herokuApp.createDyno("Dino").futureValue
-        assert(happyStatus(wsResponse1), s"Dino creation failed: ${wsResponse1.body}")
-        val dynoId = (wsResponse1.json \ "id").toString().replace("\"", "")
+        val wsResponse1: WSResponse = herokuApp.createDyno("bash").futureValue
+        assert(happyStatus(wsResponse1), s"Dyno creation failed: ${wsResponse1.body}")
+        val dynoId = (wsResponse1.json \ "id").toString().replace("\"", "") // breakpoint here shows no dyno in https://dashboard.heroku.com/apps !!!
 
         val wsResponse2: WSResponse = Dyno(dynoId).restart.futureValue
-        assert(happyStatus(wsResponse2), "Dino failed to restart")
+        assert(happyStatus(wsResponse2), "Dyno failed to restart")      // this gives a valid response, but why? I can't see any dyno
 
       case None =>
         fail("No app?!")
-    }
+    } // Heroku app is not deleted. Cannot understand why
   }
 
   // todo: test createSlug
