@@ -100,7 +100,6 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with He
 
             TestHerokuAPI.destroyApp()
             tmpAppDir.delete()
-
         }
         ()
       }
@@ -114,8 +113,9 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with He
       maybeAuthAndApp foreach { authAndApp =>
         import scala.concurrent.Future
         implicit val apiKey = authAndApp._1.asApiKey
-        val maybeApp: Future[Option[HerokuApp]] = HerokuApp.get(authAndApp._2.appName)
-        maybeApp must be('defined)
+        HerokuApp.get(authAndApp._2.appName) foreach { maybeApp =>
+          maybeApp must be('defined)
+        }
       }
     }
   }
@@ -216,6 +216,31 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with He
       case None =>
         fail("No app?!")
     } // Heroku app is not deleted. Cannot understand why
+  }
+
+  "slugs" must {
+    "go through lifecycle" in withApp {
+      case Some((apiKey, herokuApp, appDir)) =>
+        implicit val ak = HerokuApiKey(apiKey)
+        implicit val an = herokuApp
+        implicit val appName = herokuApp.appName
+        val urlStr = "https://github.com/mslinn/tinyPlay23.git"
+        gitHeadSHA(urlStr) foreach { sha =>
+          val slug = Slug.build(urlStr).futureValue
+          assert(slug.sourceUrl.toString == urlStr)
+        }
+
+      case None =>
+        fail("No app?!")
+    }
+  }
+
+  /** @return SHA of HEAD for Heroku slug creation */
+  def gitHeadSHA(urlStr: String): Option[String] = {
+    import sys.process._
+
+    Process(List("git", "ls-remote", urlStr)).!!.trim
+      .split("\n").find(_.contains("HEAD")).headOption.map(_.split("\t").head)
   }
 
   // todo: test createSlug

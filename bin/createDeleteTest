@@ -20,5 +20,17 @@ $ curl -n -X POST https://api.heroku.com/apps/$APP_ID_OR_NAME/dynos \
   "size": "1X"
 }'
 
+curl -n -X POST https://api.heroku.com/apps/$APP_ID_OR_NAME/slugs \
+  -H "Accept: application/vnd.heroku+json; version=3" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "buildpack_provided_description": "Play",
+    "commit": "99950604e715c94b048020e2ab0ae000ca66ae57",
+    "process_types": {
+      "web": "target/universal/stage/bin/tinyPlay23 -Dhttp.port=$PORT"
+    },
+    "stack": "01234567-89ab-cdef-0123-456789abcdef"
+  }'
+
 curl -n -X DELETE https://api.heroku.com/apps/$APP_ID_OR_NAME \
   -H "Accept: application/vnd.heroku+json; version=3"

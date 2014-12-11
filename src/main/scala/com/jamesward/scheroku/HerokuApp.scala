@@ -35,13 +35,6 @@ case class HerokuApp(appName: HerokuAppName, web_url: String)(implicit val ec: E
       .flatMap { handle(Status.OK, jsonToConfigVars(_)(apiKey, appName)) }
   }
 
-  def buildSlug(url: String)(implicit apiKey: HerokuApiKey): Future[JsValue] = {
-    val requestJson = Json.obj("source_blob" -> Json.obj("url" -> url))
-
-    // set the api version to 'edge' in order to get the output_stream_url
-    ws(s"apps/$appName/builds", "edge").post(requestJson).flatMap(handle(Status.CREATED, identity))
-  }
-
   /** @return `Future[ConfigVars]` where `ConfigVars` contains an empty `Map[String, String]` */
   def clearConfigVars()(implicit apiKey: HerokuApiKey): Future[ConfigVars] = {
     println(s"Clear ConfigVars for ${appName.appName}")
@@ -62,8 +55,7 @@ case class HerokuApp(appName: HerokuAppName, web_url: String)(implicit val ec: E
   /** @return config vars for this Heroku app */
   def configVars(implicit apiKey: HerokuApiKey): Future[ConfigVars] = {
     println(s"Get configVars from ${appName.appName}")
-    val x = ws(s"apps/$appName/config-vars")
-      x.get()
+    ws(s"apps/$appName/config-vars").get()
       .flatMap { handle(Status.OK, jsonToConfigVars(_)(apiKey, appName)) }
   }
 
@@ -102,34 +94,6 @@ case class HerokuApp(appName: HerokuAppName, web_url: String)(implicit val ec: E
     val requestJson = Json.toJson[StringMap](params.toMap)
     println(s"createDyno requestJson=$requestJson")
     ws(s"apps/$appName/dynos").post(requestJson)
-  }
-
-  def createSlug(appDir: File)(implicit apiKey: HerokuApiKey): Future[String] = {
-    val requestJson = Json.obj("process_types" -> Json.obj())
-
-    ws(s"/apps/$appName/slugs").post(requestJson).flatMap(handleAsync(Status.CREATED, { response =>
-      import java.io.{BufferedOutputStream, FileOutputStream}
-      import java.util.zip.GZIPOutputStream
-      import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream
-
-      val id = (response \ "id").as[String]
-      val url = (response \ "blob" \ "url").as[String]
-      val tgzFile = new File(sys.props("java.io.tmpdir"), System.nanoTime().toString + ".tar.gz")
-
-      val tgzos = new TarArchiveOutputStream(new GZIPOutputStream(new BufferedOutputStream(new FileOutputStream(tgzFile))))
-      if (appDir.listFiles != null)  // start with the files, not the dir
-        appDir.listFiles.foreach { file => addToTar(tgzos, file.getAbsolutePath, "") }
-      tgzos.finish()
-      tgzos.close()
-
-      // put the tgz
-      new HerokuWS().url(url).put(tgzFile).flatMap { _ =>
-        tgzFile.delete()
-
-        // get the url to the slug
-        ws(s"apps/$appName/slugs/$id").get().flatMap(handle(Status.OK, _.\("blob").\("url").as[String]))
-      }
-    }))
   }
 
   def destroyApp()(implicit apiKey: HerokuApiKey): Future[WSResponse] =

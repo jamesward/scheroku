@@ -68,25 +68,4 @@ trait HerokuAPI extends HerokuApiImplicits {
   // todo: logplex doesn't chunk the response so it doesn't show up right away
   def logStream(url: String): Future[(WSResponseHeaders, Enumerator[Array[Byte]])] =
     new HerokuWS().url(url).stream()
-
-  /** side effecting!!! */
-  def addToTar(tOut: TarArchiveOutputStream, path: String, base: String): Unit = {
-    // manual exclude of target dirs & local.conf
-    if (!base.endsWith("target/") && !path.endsWith("target") && !path.endsWith("local.conf")) {
-      val f = new File(path)
-      val entryName = base + f.getName
-      val tarEntry = new TarArchiveEntry(f, entryName)
-      tOut.putArchiveEntry(tarEntry)
-
-      if (f.isFile) {
-        IOUtils.copy(new FileInputStream(f), tOut)
-        tOut.closeArchiveEntry()
-      } else {
-        tOut.closeArchiveEntry()
-        f.listFiles.foreach { child =>
-          addToTar(tOut, child.getAbsolutePath, entryName + "/")
-        }
-      }
-    }
-  }
 }
