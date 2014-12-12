@@ -14,7 +14,30 @@ import scala.concurrent.{ExecutionContext, Future, Promise}
 trait HerokuAPI extends HerokuApiImplicits {
   implicit val ec: ExecutionContext
 
-  /** Create a new app setup from a gzipped tar archive containing an app.json manifest file */
+  /** Create a new app setup from a gzipped tar archive containing an app.json manifest file
+    * @return {
+      "id": "01234567-89ab-cdef-0123-456789abcdef",
+      "created_at": "2012-01-01T12:00:00Z",
+      "updated_at": "2012-01-01T12:00:00Z",
+      "status": "succeeded",
+      "failure_message": "invalid app.json",
+      "app": {
+        "id": "01234567-89ab-cdef-0123-456789abcdef",
+        "name": "example"
+      },
+      "build": {
+        "id": "01234567-89ab-cdef-0123-456789abcdef",
+        "status": "succeeded"
+      },
+      "manifest_errors": [
+        "config var FOO is required"
+      ],
+      "postdeploy": {
+        "output": "assets precompiled",
+        "exit_code": 1
+      },
+      "resolved_success_url": "http://example.herokuapp.com/welcome"
+    } */
   // TODO change return type to Future[HerokuApp]
   def appSetup(blobUrl: String)(implicit apiKey: HerokuApiKey): Future[JsValue] = {
     val requestJson = Json.obj("source_blob" -> Json.obj("url" -> blobUrl))

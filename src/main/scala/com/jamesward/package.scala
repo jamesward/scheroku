@@ -10,7 +10,7 @@ import scala.language.implicitConversions
 
 package object scheroku extends HerokuApiImplicits {
   type ConfigVarMap = Map[String, Any]
-  type StringMap     = Map[String, String]
+  type StringMap    = Map[String, String]
 
   def getApiKey(username: String, password: String)(implicit ec: ExecutionContext): Future[String] =
     wsV1("account")
@@ -45,7 +45,7 @@ package object scheroku extends HerokuApiImplicits {
   implicit def herokuAppWrites(implicit ec: ExecutionContext): Writes[HerokuApp] = new Writes[HerokuApp] {
     def writes(herokuApp: HerokuApp): JsValue =
       Json.obj(
-        "name"    -> herokuApp.appName.toString,
+        "name"    -> herokuApp.name.toString,
         "web_url" -> herokuApp.web_url
       )
   }

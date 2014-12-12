@@ -3,6 +3,7 @@ package com.jamesward.scheroku
 import java.io.File
 import com.micronautics.scheroku.DynoSizeEnum
 import com.micronautics.scheroku.DynoSizeEnum._
+import org.joda.time.DateTime
 import play.api.http.Status
 import play.api.libs.json.Reads._
 import play.api.libs.json._
@@ -25,7 +26,27 @@ object HerokuApp {
       .flatMap(handle(Status.OK, _.as[Seq[HerokuApp]]))
 }
 
-case class HerokuApp(appName: HerokuAppName, web_url: String)(implicit val ec: ExecutionContext) extends HerokuAPI {
+case class HerokuApp(
+      name: HerokuAppName,
+      web_url: String/*,
+      archived_at: Option[DateTime] = None,
+      build_stackId: Option[String] = None,
+      build_stackName: Option[String] = None,
+      created_at: Option[DateTime] = None,
+      git_url: Option[String] = None,
+      id: Option[String] = None,
+      maintenance: Boolean = false,
+      ownerEmail: Option[String] = None,
+      ownerId: Option[String] = None,
+      regionId: Option[String] = None,
+      regionName: Option[String] = None,
+      released_at: Option[DateTime] = None,
+      repo_size: Long = 0L,
+      slug_size: Long = 0L,
+      stackId: Option[String] = None,
+      stackName: String = "cedar",
+      updated_at: Option[DateTime] = None, */
+    )(implicit val ec: ExecutionContext) extends HerokuAPI {
   /** Appends given configVars to Heroku app's pre-existing config vars
     * @return config vars added, NOT all currently defined config vars */
   def addConfigVars(configVars: ConfigVars)(implicit apiKey: HerokuApiKey, appName: HerokuAppName): Future[ConfigVars] = {
@@ -37,26 +58,21 @@ case class HerokuApp(appName: HerokuAppName, web_url: String)(implicit val ec: E
 
   /** @return `Future[ConfigVars]` where `ConfigVars` contains an empty `Map[String, String]` */
   def clearConfigVars()(implicit apiKey: HerokuApiKey): Future[ConfigVars] = {
-    println(s"Clear ConfigVars for ${appName.appName}")
-    implicit val an = appName
-    val futureJson: Future[Future[WSResponse]] =
-      for {
-        cvs <- configVars
-      } yield {
-        val jsonNulls: List[String] = for {
-          (name, value) <- cvs.vars.toList
-        } yield s""""$name" : null"""
-        val jsonClear: String = jsonNulls.mkString("{ ", ", " , " }")
-        ws(s"apps/$appName/config-vars").patch(jsonClear)
-      }
-    futureJson.flatMap(identity).andThen { case _ => ConfigVars(Map.empty[String, String]) }.mapTo[ConfigVars]
+    println(s"Clear ConfigVars for ${name.appName}")
+    implicit val an = name
+    configVars.flatMap { cvs =>
+      val jsonNulls: Map[String, JsValue] = cvs.vars.mapValues { x => JsNull }
+      val jsonClear: JsValue = Json.toJson(jsonNulls)
+      ws(s"apps/$name/config-vars").patch(jsonClear)
+        .map{ _ => ConfigVars(Map.empty[String, String]) }
+    }
   }
 
   /** @return config vars for this Heroku app */
   def configVars(implicit apiKey: HerokuApiKey): Future[ConfigVars] = {
-    println(s"Get configVars from ${appName.appName}")
-    ws(s"apps/$appName/config-vars").get()
-      .flatMap { handle(Status.OK, jsonToConfigVars(_)(apiKey, appName)) }
+    println(s"Get configVars from ${name.appName}")
+    ws(s"apps/$name/config-vars").get()
+      .flatMap { handle(Status.OK, jsonToConfigVars(_)(apiKey, name)) }
   }
 
   /** Replaces Heroku app's pre-existing config vars with given configVars */
@@ -65,7 +81,7 @@ case class HerokuApp(appName: HerokuAppName, web_url: String)(implicit val ec: E
 
   def setConfigVars(newConfigVars: ConfigVars)(implicit apiKey: HerokuApiKey): Future[ConfigVars] = {
     println(s"replaceConfigVars with ${newConfigVars.vars}")
-    clearConfigVars.andThen { case _ => addConfigVars(newConfigVars)(apiKey, appName) }
+    clearConfigVars.flatMap { _ => addConfigVars(newConfigVars)(apiKey, name) }
   }
 
   /** @param command The dyno terminates if the command returns an error
@@ -93,9 +109,9 @@ case class HerokuApp(appName: HerokuAppName, web_url: String)(implicit val ec: E
     env foreach { e => params += "env" -> Json.toJson[StringMap](e).toString }
     val requestJson = Json.toJson[StringMap](params.toMap)
     println(s"createDyno requestJson=$requestJson")
-    ws(s"apps/$appName/dynos").post(requestJson)
+    ws(s"apps/$name/dynos").post(requestJson)
   }
 
   def destroyApp()(implicit apiKey: HerokuApiKey): Future[WSResponse] =
-    ws(s"apps/$appName").delete()
+    ws(s"apps/$name").delete()
 }
