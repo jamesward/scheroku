@@ -1,9 +1,7 @@
 package com.jamesward.scheroku
 
-import java.io.File
 import com.micronautics.scheroku.DynoSizeEnum
 import com.micronautics.scheroku.DynoSizeEnum._
-import org.joda.time.DateTime
 import play.api.http.Status
 import play.api.libs.json.Reads._
 import play.api.libs.json._
@@ -50,7 +48,6 @@ case class HerokuApp(
   /** Appends given configVars to Heroku app's pre-existing config vars
     * @return config vars added, NOT all currently defined config vars */
   def addConfigVars(configVars: ConfigVars)(implicit apiKey: HerokuApiKey, appName: HerokuAppName): Future[ConfigVars] = {
-    println(s"addConfigVars: ${configVars.vars} for ${appName.appName}")
     ws(s"apps/$appName/config-vars")
       .patch(Json.toJson[ConfigVarMap](configVars.vars))
       .flatMap { handle(Status.OK, jsonToConfigVars(_)(apiKey, appName)) }
@@ -58,7 +55,6 @@ case class HerokuApp(
 
   /** @return `Future[ConfigVars]` where `ConfigVars` contains an empty `Map[String, String]` */
   def clearConfigVars()(implicit apiKey: HerokuApiKey): Future[ConfigVars] = {
-    println(s"Clear ConfigVars for ${name.appName}")
     implicit val an = name
     configVars.flatMap { cvs =>
       val jsonNulls: Map[String, JsValue] = cvs.vars.mapValues { x => JsNull }
@@ -70,7 +66,6 @@ case class HerokuApp(
 
   /** @return config vars for this Heroku app */
   def configVars(implicit apiKey: HerokuApiKey): Future[ConfigVars] = {
-    println(s"Get configVars from ${name.appName}")
     ws(s"apps/$name/config-vars").get()
       .flatMap { handle(Status.OK, jsonToConfigVars(_)(apiKey, name)) }
   }
@@ -79,10 +74,8 @@ case class HerokuApp(
   def configVars_=(newConfigVars: ConfigVars)(implicit apiKey: HerokuApiKey): Future[ConfigVars] =
     setConfigVars(newConfigVars)(apiKey)
 
-  def setConfigVars(newConfigVars: ConfigVars)(implicit apiKey: HerokuApiKey): Future[ConfigVars] = {
-    println(s"replaceConfigVars with ${newConfigVars.vars}")
+  def setConfigVars(newConfigVars: ConfigVars)(implicit apiKey: HerokuApiKey): Future[ConfigVars] =
     clearConfigVars.flatMap { _ => addConfigVars(newConfigVars)(apiKey, name) }
-  }
 
   /** @param command The dyno terminates if the command returns an error
    * @return Typical response (from Heroku docs): <pre>{
@@ -108,7 +101,6 @@ case class HerokuApp(
     if (attach) params += "attach" -> "true"
     env foreach { e => params += "env" -> Json.toJson[StringMap](e).toString }
     val requestJson = Json.toJson[StringMap](params.toMap)
-    println(s"createDyno requestJson=$requestJson")
     ws(s"apps/$name/dynos").post(requestJson)
   }
 

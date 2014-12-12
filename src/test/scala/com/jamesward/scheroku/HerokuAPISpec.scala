@@ -86,7 +86,7 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with He
       val maybeApiKeyAndApp: Option[(String, HerokuApp, File)] = maybeApiKey.map { apiKey =>
         implicit val apiKey2 = apiKey.asApiKey
         val herokuApp = HerokuApp.create().futureValue
-        println(s"Testing with new Heroku app ${herokuApp.name}")
+        //println(s"Testing with new Heroku app ${herokuApp.name}")
         (apiKey, herokuApp, appDir)
       }
       try {
@@ -111,7 +111,6 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with He
       maybeAuthAndApp must be('defined)
 
       maybeAuthAndApp foreach { authAndApp =>
-        import scala.concurrent.Future
         implicit val apiKey = authAndApp._1.asApiKey
         HerokuApp.get(authAndApp._2.name) foreach { maybeApp =>
           maybeApp must be('defined)
@@ -177,7 +176,7 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with He
 
           val configVars3 = Map("name3" -> "value3")
           Await.ready(herokuApp.setConfigVars(ConfigVars(configVars3)), 10 minutes)
-          assert(herokuApp.configVars.futureValue.vars == configVars3) // Map("name1" -> "value1", "name2" -> "value2") did not equal Map("name3" -> "value3")
+          assert(herokuApp.configVars.futureValue.vars == configVars3)
 
           val configVarsAll = configVars1 ++ configVars2 ++ configVars3
           Await.ready(herokuApp.configVars = ConfigVars(configVarsAll), 10 minutes)
@@ -244,8 +243,6 @@ class HerokuAPISpec extends WordSpec with MustMatchers with ScalaFutures with He
   }
 
   // todo: test createSlug
-
-  // todo: test buildSlug
 
   // todo: test appSetup
 

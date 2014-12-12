@@ -1,9 +1,6 @@
 package com.jamesward.scheroku
 
-import java.io.{File, FileInputStream}
 import akka.actor.ActorSystem
-import org.apache.commons.compress.archivers.tar.{TarArchiveEntry, TarArchiveOutputStream}
-import org.apache.commons.compress.utils.IOUtils
 import play.api.http.Status
 import play.api.libs.iteratee.Enumerator
 import play.api.libs.json.{JsValue, Json}
