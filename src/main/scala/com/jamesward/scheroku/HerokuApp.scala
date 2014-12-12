@@ -11,17 +11,19 @@ import scala.concurrent.{ExecutionContext, Future}
 import scala.language.implicitConversions
 
 object HerokuApp {
-  def create()(implicit apiKey: HerokuApiKey, ec: ExecutionContext): Future[HerokuApp] =
-    ws("apps").post(Results.EmptyContent())
+  def create(maybeName: Option[String])(implicit apiKey: HerokuApiKey, ec: ExecutionContext): Future[HerokuApp] = {
+    val body: JsValue = maybeName.map { name => Json.toJson(Map("name" -> name)) }.getOrElse(Json.toJson(Map.empty[String, String]))
+    ws("apps").post(body)
       .flatMap(handle(Status.CREATED, _.as[HerokuApp]))
+  }
 
   def get(appName: HerokuAppName)(implicit apiKey: HerokuApiKey, ec: ExecutionContext): Future[Option[HerokuApp]] =
     ws("apps/$appName").get()
       .flatMap { handle(Status.OK, _.as[Seq[HerokuApp]]) } map { _.headOption }
 
-  def getAll(implicit apiKey: HerokuApiKey, ec: ExecutionContext): Future[Seq[HerokuApp]] =
+  def getAll(implicit apiKey: HerokuApiKey, ec: ExecutionContext): Future[List[HerokuApp]] =
     ws("apps").get()
-      .flatMap(handle(Status.OK, _.as[Seq[HerokuApp]]))
+      .flatMap(handle(Status.OK, _.as[List[HerokuApp]]))
 }
 
 case class HerokuApp(
