@@ -2,38 +2,33 @@ package com.jamesward.scheroku
 
 import java.io.File
 import scala.concurrent.ExecutionContext
+import imagej.updater.webdav.NetrcParser.Credentials
 
 object HerokuClient {
+
+  import scala.concurrent.Future
+
   val herokuApiUrlStr = "api.heroku.com"
 
-  def withLogin(appDir: File)(fn: String => Unit)(implicit ec: ExecutionContext) = {
-    import imagej.updater.webdav.NetrcParser.Credentials
+  def withLogin(fn: HerokuApiKey => Unit)(implicit ec: ExecutionContext): Future[Unit] = {
+    import scala.concurrent.Future
 
-    def withCredentials(credentials: Credentials) {
-      import util.{Failure, Success}
-      getApiKey(credentials.getUsername, credentials.getPassword).onComplete {
-        case Failure(exp) =>
-          sys.error(exp.getMessage)
-
-        case Success(value) =>
-          fn(value)
+    def evaluateIfLoggedIn(credentials: Credentials): Future[Unit] = {
+      getApiKey(credentials.getUsername, credentials.getPassword).map { apiKey: String =>
+        fn(apiKey.asApiKey)
       }
     }
 
     val netRC = new File(System.getProperty("user.home"), ".netrc")
     if (netRC.exists) {
       import imagej.updater.webdav.NetrcParser
-      withCredentials(new NetrcParser().getCredentials(herokuApiUrlStr))
+      evaluateIfLoggedIn(new NetrcParser().getCredentials(herokuApiUrlStr))
     } else {
       (for {
-        username <- sys.env.get("HEROKU_USERNAME")
-        password <- sys.env.get("HEROKU_PASSWORD")
-      } yield {
-        import imagej.updater.webdav.NetrcParser.Credentials
-        withCredentials(new Credentials(herokuApiUrlStr, username, password))
-      }).orElse(sys.error("~/.netrc was not found and environment variables not set, so cannot authenticate with Heroku"))
+         username <- sys.env.get("HEROKU_USERNAME")
+         password <- sys.env.get("HEROKU_PASSWORD")
+       } yield evaluateIfLoggedIn(new Credentials(herokuApiUrlStr, username, password)))
+      .getOrElse(Future.failed(new Exception("~/.netrc was not found and environment variables not set, so cannot authenticate with Heroku")))
     }
-    ()
   }
-
 }

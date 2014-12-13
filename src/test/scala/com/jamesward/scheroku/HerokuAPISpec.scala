@@ -1,19 +1,12 @@
 package com.jamesward.scheroku
 
-import java.io.File
-import HerokuAPISpec._
+import HerokuClient._
+import HerokuTest._
 import play.api.libs.json.Json
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Await
 import scala.concurrent.duration._
 import play.api.libs.ws.WSResponse
-
-object HerokuAPISpec {
-  def happyStatus(wsResult: WSResponse): Boolean = {
-    val status = wsResult.status
-    status>=200 && status<400
-  }
-}
 
 class HerokuAPISpec extends HerokuTest {
   "json conversion" must {
@@ -23,7 +16,7 @@ class HerokuAPISpec extends HerokuTest {
       val herokuAppName2 = Json.fromJson[HerokuAppName](jsonName).get
       assert(herokuAppName==herokuAppName2)
 
-      val herokuApp = HerokuApp(herokuAppName, "http://blah.com")(scala.concurrent.ExecutionContext.Implicits.global)
+      val herokuApp = HerokuApp(herokuAppName, "http://blah.com")
       val jsonApp = Json.toJson(herokuApp)
       val herokuApp2: HerokuApp = Json.fromJson[HerokuApp](jsonApp).get
       assert(herokuApp.name==herokuApp2.name)
@@ -38,136 +31,110 @@ class HerokuAPISpec extends HerokuTest {
   }
 
   "login with valid credentials" must {
-    "add the auth key to the session" in withLogin(new File("foo")) { maybeApiKey =>
-      maybeApiKey must be('defined)
+    "add the auth key to the session" in {
+      withLogin { herokuApiKey =>
+        herokuApiKey.apiKey.length must be > 0
+      }
+      ()
     }
   }
 
   "createApp" must {
-    "create an app on Heroku and find it" in withApp { maybeAuthAndApp =>
-      maybeAuthAndApp must be('defined)
-
-      maybeAuthAndApp foreach { authAndApp =>
-        implicit val apiKey = authAndApp._1.asApiKey
-        HerokuApp.get(authAndApp._2.name) foreach { maybeApp =>
-          maybeApp must be('defined)
-        }
+    "create an app on Heroku and find it" in withApp { testParams =>
+      implicit val apiKey = testParams.apiKey
+      HerokuApp.get(testParams.herokuApp.name) foreach { maybeApp =>
+        maybeApp must be('defined)
       }
     }
   }
 
   "get all HerokuApps" must {
-    "fail with an invalid apikey" in withApp { maybeAuthAndApp =>
-      maybeAuthAndApp.map {
-        case (apiKey, herokuApp, appDir) =>
-          implicit val appName = herokuApp.name
-          implicit val apiKeyVal = apiKey.asApiKey
-
-          HerokuApp.getAll.onFailure { case _ => fail("should fail") }
-      }
+    "fail with an invalid apikey" in withApp { testParams =>
+      implicit val appName = testParams.herokuApp.name
+      implicit val apiKey = testParams.apiKey
+      HerokuApp.getAll.onFailure { case _ => fail("should fail") }
     }
 
-    "work with an APIKey" in withApp { maybeAuthAndApp =>
-      maybeAuthAndApp.map {
-        case (apiKey, herokuApp, appDir) =>
-          implicit val appName = herokuApp.name
-          implicit val apiKeyVal = apiKey.asApiKey
-
-          HerokuApp.getAll.futureValue.size must be > 0
-      }
+    "work with an APIKey" in withApp { testParams =>
+      implicit val appName = testParams.herokuApp.name
+      implicit val apiKeyVal = testParams.apiKey
+      HerokuApp.getAll.futureValue.size must be > 0
     }
 
-    "get the app that was created" in withApp { maybeAuthAndApp =>
-      maybeAuthAndApp.map {
-        case (apiKey, herokuApp, appDir) =>
-          implicit val appName = herokuApp.name
-          implicit val apiKeyVal = apiKey.asApiKey
+    "get the app that was created" in withApp { testParams =>
+      implicit val appName = testParams.herokuApp.name
+      implicit val apiKeyVal = testParams.apiKey
 
-          val allHerokuApps: Seq[HerokuApp] = HerokuApp.getAll.futureValue
-          allHerokuApps.size must be > 0
-          val newHerokuApp = allHerokuApps.filter(_.name == herokuApp.name)
-          newHerokuApp.size must equal(1)
-      }
+      val allHerokuApps: Seq[HerokuApp] = HerokuApp.getAll.futureValue
+      allHerokuApps.size must be > 0
+      val newHerokuApp = allHerokuApps.filter(_.name == testParams.herokuApp.name)
+      newHerokuApp.size must equal(1)
     }
   }
 
   "config vars" must {
-    "be manipulable" in withApp { maybeAuthAndApp =>
-      maybeAuthAndApp.map {
-        case (apiKey, herokuApp, appDir) =>
-          implicit val appName: HerokuAppName = herokuApp.name
-          implicit val apiKeyVal: HerokuApiKey = apiKey.asApiKey
+    "be manipulable" in withApp { testParams =>
+      implicit val appName: HerokuAppName = testParams.herokuApp.name
+      implicit val apiKeyVal: HerokuApiKey = testParams.apiKey
 
-          assert(herokuApp.configVars.futureValue.vars == Map.empty[String, String])
+      assert(testParams.herokuApp.configVars.futureValue.vars == Map.empty[String, String])
 
-          val configVars1 = Map("name1" -> "value1")
-          Await.ready(herokuApp.addConfigVars(ConfigVars(configVars1)), 10 minutes)
-          assert(herokuApp.configVars.futureValue.vars == configVars1)
+      val configVars1 = Map("name1" -> "value1")
+      Await.ready(testParams.herokuApp.addConfigVars(ConfigVars(configVars1)), 10 minutes)
+      assert(testParams.herokuApp.configVars.futureValue.vars == configVars1)
 
-          val configVars2 = Map("name2" -> "value2")
-          Await.ready(herokuApp.addConfigVars(ConfigVars(configVars2)), 10 minutes)
-          assert(herokuApp.configVars.futureValue.vars == configVars1 ++ configVars2)
+      val configVars2 = Map("name2" -> "value2")
+      Await.ready(testParams.herokuApp.addConfigVars(ConfigVars(configVars2)), 10 minutes)
+      assert(testParams.herokuApp.configVars.futureValue.vars == configVars1 ++ configVars2)
 
-          Await.ready(herokuApp.clearConfigVars(), 10 minutes)
-          assert(herokuApp.configVars.futureValue.vars == Map.empty[String, String])
+      Await.ready(testParams.herokuApp.clearConfigVars(), 10 minutes)
+      assert(testParams.herokuApp.configVars.futureValue.vars == Map.empty[String, String])
 
-          val configVars3 = Map("name3" -> "value3")
-          Await.ready(herokuApp.setConfigVars(ConfigVars(configVars3)), 10 minutes)
-          assert(herokuApp.configVars.futureValue.vars == configVars3)
+      val configVars3 = Map("name3" -> "value3")
+      Await.ready(testParams.herokuApp.setConfigVars(ConfigVars(configVars3)), 10 minutes)
+      assert(testParams.herokuApp.configVars.futureValue.vars == configVars3)
 
-          val configVarsAll = configVars1 ++ configVars2 ++ configVars3
-          Await.ready(herokuApp.configVars = ConfigVars(configVarsAll), 10 minutes)
-          assert(herokuApp.configVars.futureValue.vars == configVarsAll)
-      }
+      val configVarsAll = configVars1 ++ configVars2 ++ configVars3
+      Await.ready(testParams.herokuApp.configVars = ConfigVars(configVarsAll), 10 minutes)
+      assert(testParams.herokuApp.configVars.futureValue.vars == configVarsAll)
     }
   }
 
   "logs" must {
-    "get the log stream" in withApp { maybeAuthAndApp =>
-      maybeAuthAndApp.map {
-        case (apiKey, herokuApp, appDir) =>
-          implicit val appName = herokuApp.name
-          implicit val apiKeyVal = apiKey.asApiKey
+    "get the log stream" in withApp { testParams =>
+      implicit val appName = testParams.herokuApp.name
+      implicit val apiKeyVal = testParams.apiKey
 
-          // Wait here because it takes a few for the Heroku logplex to be enabled
-          Thread.sleep(5000)
-          (TestHerokuAPI.logs.futureValue \ "logplex_url").asOpt[String] must be('defined)
-      }
+      // Wait here because it takes a few for the Heroku logplex to be enabled
+      Thread.sleep(5000)
+      (TestHerokuAPI.logs.futureValue \ "logplex_url").asOpt[String] must be('defined)
     }
   }
 
   "dynos" must {
-    "go through lifecycle" in withApp {
-      case Some((apiKey, herokuApp, appDir)) =>
-        implicit val appName = herokuApp.name
-        implicit val apiKeyVal = apiKey.asApiKey
+    "go through lifecycle" in withApp { testParams =>
+      implicit val appName = testParams.herokuApp.name
+      implicit val apiKeyVal = testParams.apiKey
 
-        val wsResponse1: WSResponse = herokuApp.createDyno("bash").futureValue
-        assert(happyStatus(wsResponse1), s"Dyno creation failed: ${wsResponse1.body}")
-        val dynoId = (wsResponse1.json \ "id").toString().replace("\"", "") // breakpoint here shows no dyno in https://dashboard.heroku.com/apps !!!
+      val wsResponse1: WSResponse = testParams.herokuApp.createDyno("bash").futureValue
+      assert(happyStatus(wsResponse1), s"Dyno creation failed: ${wsResponse1.body}")
+      val dynoId = (wsResponse1.json \ "id").toString().replace("\"", "") // breakpoint here shows no dyno in https://dashboard.heroku.com/apps !!!
 
-        val wsResponse2: WSResponse = Dyno(dynoId).restart.futureValue
-        assert(happyStatus(wsResponse2), "Dyno failed to restart")      // this gives a valid response, but why? I can't see any dyno
-
-      case None =>
-        fail("No app?!")
+      val wsResponse2: WSResponse = Dyno(dynoId).restart.futureValue
+      assert(happyStatus(wsResponse2), "Dyno failed to restart")      // this gives a valid response, but why? I can't see any dyno
     } // Heroku app is not deleted. Cannot understand why
   }
 
   "slugs" must {
-    "go through lifecycle" in withApp {
-      case Some((apiKey, herokuApp, appDir)) =>
-        implicit val ak = HerokuApiKey(apiKey)
-        implicit val an = herokuApp
-        implicit val appName = herokuApp.name
-        val urlStr = "https://github.com/mslinn/tinyPlay23.git"
-        gitHeadSHA(urlStr) foreach { sha =>
-          val slug = Slug.build(urlStr).futureValue
-          assert(slug.sourceUrl.toString == urlStr)
-        }
-
-      case None =>
-        fail("No app?!")
+    "go through lifecycle" in withApp { testParams =>
+      implicit val apiKey = testParams.apiKey
+      implicit val herokuApp = testParams.herokuApp
+      implicit val appName = herokuApp.name
+      val urlStr = "https://github.com/mslinn/tinyPlay23.git"
+      gitHeadSHA(urlStr) foreach { sha =>
+        val slug = Slug.build(urlStr).futureValue
+        assert(slug.sourceUrl.toString == urlStr)
+      }
     }
   }
 

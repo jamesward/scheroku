@@ -47,6 +47,8 @@ case class HerokuApp(
       stackName: String = "cedar",
       updated_at: Option[DateTime] = None, */
     )(implicit val ec: ExecutionContext) extends HerokuAPI {
+  implicit val appName: HerokuAppName = name
+
   /** Appends given configVars to Heroku app's pre-existing config vars
     * @return config vars added, NOT all currently defined config vars */
   def addConfigVars(configVars: ConfigVars)(implicit apiKey: HerokuApiKey, appName: HerokuAppName): Future[ConfigVars] = {
@@ -57,7 +59,6 @@ case class HerokuApp(
 
   /** @return `Future[ConfigVars]` where `ConfigVars` contains an empty `Map[String, String]` */
   def clearConfigVars()(implicit apiKey: HerokuApiKey): Future[ConfigVars] = {
-    implicit val an = name
     configVars.flatMap { cvs =>
       val jsonNulls: Map[String, JsValue] = cvs.vars.mapValues { x => JsNull }
       val jsonClear: JsValue = Json.toJson(jsonNulls)

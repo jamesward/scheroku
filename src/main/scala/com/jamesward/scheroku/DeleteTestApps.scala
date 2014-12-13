@@ -1,6 +1,5 @@
 package com.jamesward.scheroku
 
-import java.io.File
 import HerokuClient._
 import play.api.libs.ws.WSResponse
 import scala.concurrent.Future
@@ -10,8 +9,7 @@ import concurrent.ExecutionContext.Implicits.global
 object DeleteTestApps extends App {
   val prefix: String = if (args.nonEmpty) args(0) else "test"
 
-  withLogin(new File(".")) { apiKey =>
-    implicit val ak = HerokuApiKey(apiKey)
+  withLogin { implicit herokuApiKey =>
     HerokuApp.getAll.onSuccess { case herokuApps =>
       val deletions: List[Future[WSResponse]] = for {
         herokuApp <- herokuApps if herokuApp.name.appName.startsWith(prefix)
