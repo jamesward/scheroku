@@ -5,7 +5,7 @@ import HerokuTest._
 import play.api.libs.json.Json
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Await
-import scala.concurrent.duration._
+import org.scalatest.time.SpanSugar._
 import play.api.libs.ws.WSResponse
 
 class HerokuAPISpec extends HerokuTest {
@@ -80,23 +80,28 @@ class HerokuAPISpec extends HerokuTest {
       assert(testParams.herokuApp.configVars.futureValue.vars == Map.empty[String, String])
 
       val configVars1 = Map("name1" -> "value1")
-      Await.ready(testParams.herokuApp.addConfigVars(ConfigVars(configVars1)), 10 minutes)
-      assert(testParams.herokuApp.configVars.futureValue.vars == configVars1)
+      whenReady(testParams.herokuApp.addConfigVars(ConfigVars(configVars1))) { _ =>
+        assert(testParams.herokuApp.configVars.futureValue.vars == configVars1)
+      }
 
       val configVars2 = Map("name2" -> "value2")
-      Await.ready(testParams.herokuApp.addConfigVars(ConfigVars(configVars2)), 10 minutes)
-      assert(testParams.herokuApp.configVars.futureValue.vars == configVars1 ++ configVars2)
+      whenReady(testParams.herokuApp.addConfigVars(ConfigVars(configVars2))) { _ =>
+        assert(testParams.herokuApp.configVars.futureValue.vars == configVars1 ++ configVars2)
+      }
 
-      Await.ready(testParams.herokuApp.clearConfigVars(), 10 minutes)
-      assert(testParams.herokuApp.configVars.futureValue.vars == Map.empty[String, String])
+      whenReady(testParams.herokuApp.clearConfigVars()) { _ =>
+        assert(testParams.herokuApp.configVars.futureValue.vars == Map.empty[String, String])
+      }
 
       val configVars3 = Map("name3" -> "value3")
-      Await.ready(testParams.herokuApp.setConfigVars(ConfigVars(configVars3)), 10 minutes)
-      assert(testParams.herokuApp.configVars.futureValue.vars == configVars3)
+      whenReady(testParams.herokuApp.setConfigVars(ConfigVars(configVars3))) { _ =>
+        assert(testParams.herokuApp.configVars.futureValue.vars == configVars3)
+      }
 
       val configVarsAll = configVars1 ++ configVars2 ++ configVars3
-      Await.ready(testParams.herokuApp.configVars = ConfigVars(configVarsAll), 10 minutes)
-      assert(testParams.herokuApp.configVars.futureValue.vars == configVarsAll)
+      whenReady(testParams.herokuApp.configVars = ConfigVars(configVarsAll)) { _ =>
+        assert(testParams.herokuApp.configVars.futureValue.vars == configVarsAll)
+      }
     }
   }
 
