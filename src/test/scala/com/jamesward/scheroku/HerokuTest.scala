@@ -1,15 +1,12 @@
 package com.jamesward.scheroku
 
 import java.io.File
-import org.scalatest.{WordSpec, MustMatchers}
-import org.scalatest.concurrent.ScalaFutures
-import org.scalatest.time.{Seconds, Span}
-import scala.concurrent.ExecutionContext.Implicits.global
 import HerokuClient._
+import org.scalatest.{WordSpec, MustMatchers}
+import org.scalatest.concurrent.{IntegrationPatience, ScalaFutures}
+import scala.concurrent.ExecutionContext
 
-object TestHerokuAPI extends HerokuAPI {
-  override val ec = global
-}
+object TestHerokuAPI extends HerokuAPI
 
 object HerokuTest {
   import play.api.libs.ws.WSResponse
@@ -20,12 +17,10 @@ object HerokuTest {
   }
 }
 
-trait HerokuTest extends WordSpec with MustMatchers with ScalaFutures with HerokuApiImplicits {
-  override implicit val patienceConfig: PatienceConfig = PatienceConfig(Span(30, Seconds))
-
+trait HerokuTest extends WordSpec with MustMatchers with ScalaFutures with IntegrationPatience with HerokuApiImplicits {
   case class TestParams(apiKey: HerokuApiKey, herokuApp: HerokuApp, appDir: File)
 
-  def withApp(testCode: TestParams => Any): Unit = {
+  def withApp(testCode: TestParams => Any)(implicit ec: ExecutionContext): Unit = {
     val now = System.nanoTime.toString
     val appDir = new File(sys.props("java.io.tmpdir"), now)
     withLogin { implicit apiKey: HerokuApiKey =>

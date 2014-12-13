@@ -3,10 +3,9 @@ package com.jamesward.scheroku
 import com.micronautics.scheroku.DynoSizeEnum
 import com.micronautics.scheroku.DynoSizeEnum._
 import play.api.http.Status
-import play.api.libs.json.Reads._
 import play.api.libs.json._
+import play.api.libs.json.Reads._
 import play.api.libs.ws.WSResponse
-import play.api.mvc.Results
 import scala.concurrent.{ExecutionContext, Future}
 import scala.language.implicitConversions
 

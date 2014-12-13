@@ -4,8 +4,6 @@ import HerokuClient._
 import HerokuTest._
 import play.api.libs.json.Json
 import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.Await
-import org.scalatest.time.SpanSugar._
 import play.api.libs.ws.WSResponse
 
 class HerokuAPISpec extends HerokuTest {

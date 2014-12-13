@@ -9,8 +9,6 @@ import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future, Promise}
 
 trait HerokuAPI extends HerokuApiImplicits {
-  implicit val ec: ExecutionContext
-
   /** Create a new app setup from a gzipped tar archive containing an app.json manifest file
     * @return {
       "id": "01234567-89ab-cdef-0123-456789abcdef",
@@ -36,7 +34,7 @@ trait HerokuAPI extends HerokuApiImplicits {
       "resolved_success_url": "http://example.herokuapp.com/welcome"
     } */
   // TODO change return type to Future[HerokuApp]
-  def appSetup(blobUrl: String)(implicit apiKey: HerokuApiKey): Future[JsValue] = {
+  def appSetup(blobUrl: String)(implicit apiKey: HerokuApiKey, ec: ExecutionContext): Future[JsValue] = {
     val requestJson = Json.obj("source_blob" -> Json.obj("url" -> blobUrl))
     ws("app-setups", "edge").post(requestJson).flatMap { response =>
       val id = (response.json \ "id").as[String]
@@ -68,7 +66,7 @@ trait HerokuAPI extends HerokuApiImplicits {
     }
   }
 
-  def appSetupStatus(id: String)(implicit apiKey: HerokuApiKey): Future[JsValue] =
+  def appSetupStatus(id: String)(implicit apiKey: HerokuApiKey, ec: ExecutionContext): Future[JsValue] =
     ws(s"app-setups/$id", "edge").get()
       .flatMap(handle(Status.OK, identity))
 
@@ -76,12 +74,12 @@ trait HerokuAPI extends HerokuApiImplicits {
   def destroyApp()(implicit apiKey: HerokuApiKey, appName: HerokuAppName): Future[WSResponse] =
     ws(s"apps/$appName").delete()
 
-  def logs(implicit apiKey: HerokuApiKey, appName: HerokuAppName): Future[JsValue] = {
+  def logs(implicit apiKey: HerokuApiKey, appName: HerokuAppName, ec: ExecutionContext): Future[JsValue] = {
     val requestJson = Json.obj("tail" -> true, "lines" -> 10)
     ws(s"apps/$appName/log-sessions").post(requestJson).flatMap(handle(Status.CREATED, identity))
   }
 
-  def buildResult(id: String)(implicit apiKey: HerokuApiKey, appName: HerokuAppName): Future[JsValue] =
+  def buildResult(id: String)(implicit apiKey: HerokuApiKey, appName: HerokuAppName, ec: ExecutionContext): Future[JsValue] =
     ws(s"apps/$appName/builds/$id/result").get()
       .flatMap(handle(Status.OK, identity))
 

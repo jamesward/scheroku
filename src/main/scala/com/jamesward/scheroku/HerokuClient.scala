@@ -1,13 +1,10 @@
 package com.jamesward.scheroku
 
 import java.io.File
-import scala.concurrent.ExecutionContext
 import imagej.updater.webdav.NetrcParser.Credentials
+import scala.concurrent.{ExecutionContext, Future}
 
 object HerokuClient {
-
-  import scala.concurrent.Future
-
   val herokuApiUrlStr = "api.heroku.com"
 
   def withLogin(fn: HerokuApiKey => Unit)(implicit ec: ExecutionContext): Future[Unit] = {
