@@ -26,6 +26,9 @@ javacOptions ++= Seq("-Xlint:deprecation", "-Xlint:unchecked", "-source", "1.7",
 bintraySettings
 publishMavenStyle := false
 
+site.settings
+site.includeScaladoc()
+
 com.typesafe.sbt.SbtGit.versionWithGit
 
 logBuffered in Test := false

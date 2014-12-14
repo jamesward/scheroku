@@ -10,7 +10,7 @@ import scala.concurrent.ExecutionContext
 import scala.concurrent.Future
 
 case class ConfigVars(vars: ConfigVarMap)(implicit apiKey: HerokuApiKey, appName: HerokuAppName) {
-  /** @return Future[ConfigVars] with given configVars appended to the Heroku app's pre-existing config vars */
+//  /** @return Future[ConfigVars] with given configVars appended to the Heroku app's pre-existing config vars */
 //  def +=(configVars: ConfigVarType)(implicit ec: ExecutionContext): Future[ConfigVars] =
 //    ws(s"apps/$appName/config-vars")
 //      .patch(Json.toJson(configVars))
